@@ -1,153 +1,73 @@
-2025-05-23 18:48:37,797 - INFO - Updating market list for event: KXPRESPOLAND
-2025-05-23 18:48:37,861 - INFO - Updated 3 high-volume markets
-2025-05-23 18:48:37,872 - INFO - Starting WebSocket client with 3 markets
-2025-05-23 18:51:28,222 - INFO - Updating market list for event: KXPRESPOLAND
-2025-05-23 18:51:28,285 - INFO - Updated 3 high-volume markets
-2025-05-23 18:51:28,286 - INFO - Found 3 high-volume markets to monitor:
-2025-05-23 18:51:28,287 - INFO - - KXPRESPOLAND-SM
-2025-05-23 18:51:28,287 - INFO - - KXPRESPOLAND-RT
-2025-05-23 18:51:28,288 - INFO - - KXPRESPOLAND-KN
-2025-05-23 18:51:31,878 - INFO - Starting WebSocket client...
-2025-05-23 18:56:45,574 - INFO - Updating market list for event: KXPRESPOLAND
-2025-05-23 18:56:45,647 - INFO - Updated 3 high-volume markets
-2025-05-23 18:56:45,648 - INFO - Found 3 high-volume markets to monitor:
-2025-05-23 18:56:45,649 - INFO - - KXPRESPOLAND-SM
-2025-05-23 18:56:45,649 - INFO - - KXPRESPOLAND-RT
-2025-05-23 18:56:45,649 - INFO - - KXPRESPOLAND-KN
-2025-05-23 18:56:50,469 - INFO - Monitoring cancelled by user
-2025-05-23 18:57:06,714 - INFO - Updating market list for event: KXPRESPOLAND
-2025-05-23 18:57:06,782 - INFO - Updated 3 high-volume markets
-2025-05-23 18:57:06,784 - INFO - Found 3 high-volume markets to monitor:
-2025-05-23 18:57:06,785 - INFO - - KXPRESPOLAND-SM
-2025-05-23 18:57:06,785 - INFO - - KXPRESPOLAND-RT
-2025-05-23 18:57:06,785 - INFO - - KXPRESPOLAND-KN
-2025-05-23 18:57:10,264 - INFO - Starting WebSocket client...
-2025-05-23 20:01:01,406 - INFO - Updating market list for event: KXPRESPOLAND
-2025-05-23 20:01:01,491 - INFO - Updated 3 high-volume markets
-2025-05-23 20:01:01,493 - INFO - Found 3 high-volume markets to monitor:
-2025-05-23 20:01:01,493 - INFO - - KXPRESPOLAND-SM
-2025-05-23 20:01:01,493 - INFO - - KXPRESPOLAND-RT
-2025-05-23 20:01:01,493 - INFO - - KXPRESPOLAND-KN
-2025-05-23 20:01:03,265 - INFO - Starting WebSocket client...
-2025-05-23 20:07:08,894 - INFO - Updating market list for event: KXPRESPOLAND
-2025-05-23 20:07:08,986 - INFO - Updated 3 high-volume markets
-2025-05-23 20:07:08,988 - INFO - Found 3 high-volume markets to monitor:
-2025-05-23 20:07:08,989 - INFO - - KXPRESPOLAND-SM
-2025-05-23 20:07:08,989 - INFO - - KXPRESPOLAND-RT
-2025-05-23 20:07:08,990 - INFO - - KXPRESPOLAND-KN
-2025-05-23 20:07:11,639 - INFO - Starting WebSocket client...
-2025-05-23 20:12:08,889 - INFO - Updating market list for event: KXPRESPOLAND
-2025-05-23 20:12:08,964 - INFO - Updated 3 high-volume markets
-2025-05-23 20:12:08,966 - INFO - Found 3 high-volume markets to monitor:
-2025-05-23 20:12:08,966 - INFO - - KXPRESPOLAND-SM
-2025-05-23 20:12:08,967 - INFO - - KXPRESPOLAND-RT
-2025-05-23 20:12:08,968 - INFO - - KXPRESPOLAND-KN
-2025-05-23 20:12:10,788 - INFO - Starting WebSocket client...
-2025-05-23 20:15:27,106 - INFO - Updating market list for event: KXPRESPOLAND
-2025-05-23 20:15:27,179 - INFO - Updated 3 high-volume markets
-2025-05-23 20:15:27,182 - INFO - Found 3 high-volume markets to monitor:
-2025-05-23 20:15:27,183 - INFO - - KXPRESPOLAND-SM
-2025-05-23 20:15:27,183 - INFO - - KXPRESPOLAND-RT
-2025-05-23 20:15:27,183 - INFO - - KXPRESPOLAND-KN
-2025-05-23 20:15:28,553 - INFO - Starting WebSocket client...
-2025-05-23 20:17:09,982 - INFO - Updating market list for event: KXPRESPOLAND
-2025-05-23 20:17:10,073 - INFO - Updated 3 high-volume markets
-2025-05-23 20:17:10,075 - INFO - Found 3 high-volume markets to monitor:
-2025-05-23 20:17:10,075 - INFO - - KXPRESPOLAND-SM
-2025-05-23 20:17:10,075 - INFO - - KXPRESPOLAND-RT
-2025-05-23 20:17:10,075 - INFO - - KXPRESPOLAND-KN
-2025-05-23 20:17:10,940 - INFO - Starting WebSocket client...
-2025-05-23 20:21:16,890 - INFO - Updating market list for event: KXPRESPOLASND
-2025-05-23 20:21:16,964 - INFO - Updated 0 high-volume markets
-2025-05-23 20:21:16,965 - ERROR - No market tickers available to monitor
-2025-05-23 20:21:22,919 - INFO - Updating market list for event: KXPRESPOLAND
-2025-05-23 20:21:22,989 - INFO - Updated 3 high-volume markets
-2025-05-23 20:21:22,991 - INFO - Found 3 high-volume markets to monitor:
-2025-05-23 20:21:22,992 - INFO - - KXPRESPOLAND-SM
-2025-05-23 20:21:22,993 - INFO - - KXPRESPOLAND-RT
-2025-05-23 20:21:22,993 - INFO - - KXPRESPOLAND-KN
-2025-05-23 20:21:24,616 - INFO - Starting WebSocket client...
-2025-05-23 20:22:34,336 - INFO - Updating market list for event: KXPRESPOLAND
-2025-05-23 20:22:34,460 - INFO - Updated 3 high-volume markets
-2025-05-23 20:22:34,465 - INFO - Found 3 high-volume markets to monitor:
-2025-05-23 20:22:34,466 - INFO - - KXPRESPOLAND-SM
-2025-05-23 20:22:34,467 - INFO - - KXPRESPOLAND-RT
-2025-05-23 20:22:34,467 - INFO - - KXPRESPOLAND-KN
-2025-05-23 20:22:35,866 - INFO - Starting WebSocket client...
-2025-05-23 20:32:52,418 - INFO - Updating market list for event: KXPRESPOLAND
-2025-05-23 20:32:52,496 - INFO - Updated 3 high-volume markets
-2025-05-23 20:32:52,499 - INFO - Found 3 high-volume markets to monitor:
-2025-05-23 20:32:52,499 - INFO - - KXPRESPOLAND-SM
-2025-05-23 20:32:52,500 - INFO - - KXPRESPOLAND-RT
-2025-05-23 20:32:52,500 - INFO - - KXPRESPOLAND-KN
-2025-05-23 20:32:54,062 - INFO - Starting WebSocket client...
-2025-05-23 20:50:55,491 - INFO - Updating market list for event: KXPRESPOLAND
-2025-05-23 20:50:55,567 - INFO - Updated 3 high-volume markets
-2025-05-23 20:50:55,569 - INFO - Found 3 high-volume markets to monitor:
-2025-05-23 20:50:55,569 - INFO - - KXPRESPOLAND-SM
-2025-05-23 20:50:55,569 - INFO - - KXPRESPOLAND-RT
-2025-05-23 20:50:55,570 - INFO - - KXPRESPOLAND-KN
-2025-05-23 20:50:56,912 - INFO - Starting WebSocket client...
-2025-05-23 20:57:36,476 - INFO - Updating market list for event: KXPRESPOLAND
-2025-05-23 20:57:36,556 - INFO - Updated 3 high-volume markets
-2025-05-23 20:57:36,559 - INFO - Found 3 high-volume markets to monitor:
-2025-05-23 20:57:36,559 - INFO - - KXPRESPOLAND-SM
-2025-05-23 20:57:36,559 - INFO - - KXPRESPOLAND-RT
-2025-05-23 20:57:36,560 - INFO - - KXPRESPOLAND-KN
-2025-05-23 20:57:39,109 - INFO - Starting WebSocket client...
-2025-05-23 21:50:16,733 - INFO - Updating market list for event: KXPRESPOLAND
-2025-05-23 21:50:16,836 - INFO - Updated 3 high-volume markets
-2025-05-23 21:50:16,867 - INFO - Found 3 high-volume markets to monitor:
-2025-05-23 21:50:16,867 - INFO - - KXPRESPOLAND-SM
-2025-05-23 21:50:16,868 - INFO - - KXPRESPOLAND-RT
-2025-05-23 21:50:16,869 - INFO - - KXPRESPOLAND-KN
-2025-05-23 21:50:19,946 - INFO - Starting WebSocket client...
-2025-05-23 21:51:29,016 - INFO - Updating market list for event: KXPRESPOLAND
-2025-05-23 21:51:29,112 - INFO - Updated 3 high-volume markets
-2025-05-23 21:51:29,116 - INFO - Found 3 high-volume markets to monitor:
-2025-05-23 21:51:29,116 - INFO - - KXPRESPOLAND-SM
-2025-05-23 21:51:29,117 - INFO - - KXPRESPOLAND-RT
-2025-05-23 21:51:29,118 - INFO - - KXPRESPOLAND-KN
-2025-05-23 21:51:30,755 - INFO - Starting WebSocket client...
-2025-05-23 21:52:58,337 - INFO - Updating market list for event: KXPRESPOLAND
-2025-05-23 21:52:58,463 - INFO - Updated 3 high-volume markets
-2025-05-23 21:52:58,469 - INFO - Found 3 high-volume markets to monitor:
-2025-05-23 21:52:58,471 - INFO - - KXPRESPOLAND-SM
-2025-05-23 21:52:58,472 - INFO - - KXPRESPOLAND-RT
-2025-05-23 21:52:58,473 - INFO - - KXPRESPOLAND-KN
-2025-05-23 21:53:00,065 - INFO - Starting WebSocket client...
-2025-05-23 21:55:18,212 - INFO - Updating market list for event: KXPRESPOLAND
-2025-05-23 21:55:18,366 - INFO - Updated 3 high-volume markets
-2025-05-23 21:55:18,373 - INFO - Found 3 high-volume markets to monitor:
-2025-05-23 21:55:18,374 - INFO - - KXPRESPOLAND-SM
-2025-05-23 21:55:18,374 - INFO - - KXPRESPOLAND-RT
-2025-05-23 21:55:18,375 - INFO - - KXPRESPOLAND-KN
-2025-05-23 21:55:19,751 - INFO - Starting WebSocket client...
-2025-05-23 22:00:07,737 - INFO - Updating market list for event: KXPRESPOLAND
-2025-05-23 22:00:07,872 - INFO - Updated 3 high-volume markets
-2025-05-23 22:00:07,877 - INFO - Found 3 high-volume markets to monitor:
-2025-05-23 22:00:07,878 - INFO - - KXPRESPOLAND-SM
-2025-05-23 22:00:07,879 - INFO - - KXPRESPOLAND-RT
-2025-05-23 22:00:07,879 - INFO - - KXPRESPOLAND-KN
-2025-05-23 22:00:09,112 - INFO - Starting WebSocket client...
-2025-05-23 22:09:48,405 - INFO - Updating market list for event: KXPRESPOLAND
-2025-05-23 22:09:48,490 - INFO - Updated 3 high-volume markets
-2025-05-23 22:09:48,508 - INFO - Found 3 high-volume markets to monitor:
-2025-05-23 22:09:48,509 - INFO - - KXPRESPOLAND-SM
-2025-05-23 22:09:48,510 - INFO - - KXPRESPOLAND-RT
-2025-05-23 22:09:48,510 - INFO - - KXPRESPOLAND-KN
-2025-05-23 22:09:50,571 - INFO - Starting WebSocket client...
-2025-05-23 22:39:31,926 - INFO - Updating market list for event: KXPRESPOLAND
-2025-05-23 22:39:32,013 - INFO - Updated 3 high-volume markets
-2025-05-23 22:39:32,018 - INFO - Found 3 high-volume markets to monitor:
-2025-05-23 22:39:32,019 - INFO - - KXPRESPOLAND-SM
-2025-05-23 22:39:32,020 - INFO - - KXPRESPOLAND-RT
-2025-05-23 22:39:32,021 - INFO - - KXPRESPOLAND-KN
-2025-05-23 22:39:33,760 - INFO - Starting WebSocket client...
-2025-05-23 23:30:55,985 - INFO - Updating market list for event: KXPRESPOLAND
-2025-05-23 23:30:56,165 - INFO - Updated 3 high-volume markets
-2025-05-23 23:30:56,169 - INFO - Found 3 high-volume markets to monitor:
-2025-05-23 23:30:56,170 - INFO - - KXPRESPOLAND-SM
-2025-05-23 23:30:56,171 - INFO - - KXPRESPOLAND-RT
-2025-05-23 23:30:56,172 - INFO - - KXPRESPOLAND-KN
-2025-05-23 23:30:58,575 - INFO - Starting WebSocket client...
+2025-05-25 18:57:06,244 - INFO - Updating market list for event: KXMAYORNYCNOMD
+2025-05-25 18:57:06,341 - INFO - Updated 0 high-volume markets
+2025-05-25 18:57:06,342 - ERROR - No market tickers available to monitor
+2025-05-25 18:59:15,337 - INFO - Updating market list for event: KXMAYORNYCNOMD
+2025-05-25 18:59:15,410 - INFO - Updated 0 high-volume markets
+2025-05-25 18:59:15,411 - ERROR - No market tickers available to monitor
+2025-05-25 18:59:37,526 - INFO - Updating market list for event: KXMAYORNYCNOMD
+2025-05-25 18:59:37,593 - INFO - Updated 0 high-volume markets
+2025-05-25 18:59:37,594 - ERROR - No market tickers available to monitor
+2025-05-25 19:00:52,409 - INFO - Updating market list for event: KXPRESPOLAND
+2025-05-25 19:00:52,490 - INFO - Updated 5 high-volume markets
+2025-05-25 19:00:52,515 - INFO - Found 5 high-volume markets to monitor:
+2025-05-25 19:00:52,515 - INFO - - KXPRESPOLAND-SM
+2025-05-25 19:00:52,517 - INFO - - KXPRESPOLAND-MJ
+2025-05-25 19:00:52,517 - INFO - - KXPRESPOLAND-SH
+2025-05-25 19:00:52,518 - INFO - - KXPRESPOLAND-RT
+2025-05-25 19:00:52,518 - INFO - - KXPRESPOLAND-KN
+2025-05-25 19:01:04,733 - INFO - Monitoring cancelled by user
+2025-05-25 19:01:27,823 - INFO - Updating market list for event: KXMAYORNYCNOMD
+2025-05-25 19:01:27,894 - INFO - Updated 0 high-volume markets
+2025-05-25 19:01:27,895 - ERROR - No market tickers available to monitor
+2025-05-25 19:02:48,122 - INFO - Updating market list for event: KXMUSKDOGE
+2025-05-25 19:02:48,216 - INFO - Updated 0 high-volume markets
+2025-05-25 19:02:48,217 - ERROR - No market tickers available to monitor
+2025-05-25 19:07:18,572 - INFO - Updating market list for event: KXMUSKDOGE
+2025-05-25 19:07:18,648 - INFO - Updated 0 high-volume markets
+2025-05-25 19:07:18,649 - ERROR - No market tickers available to monitor
+2025-05-25 19:10:36,655 - INFO - Updating market list for event: KXRATECUTCOUNT
+2025-05-25 19:10:36,793 - INFO - Updated 0 high-volume markets
+2025-05-25 19:10:36,796 - ERROR - No market tickers available to monitor
+2025-05-25 19:11:28,382 - INFO - Updating market list for event: KXRATECUTCOUNT
+2025-05-25 19:11:28,462 - INFO - Updated 0 high-volume markets
+2025-05-25 19:11:28,463 - ERROR - No market tickers available to monitor
+2025-05-25 19:16:21,447 - INFO - Updating market list for event: KXRATECUTCOUNT
+2025-05-25 19:16:21,637 - INFO - Updated 0 high-volume markets
+2025-05-25 19:16:21,638 - ERROR - No market tickers available to monitor
+2025-05-25 19:24:54,309 - INFO - Updating market list for event: KXNHLGAME-25MAY27DALEDM
+2025-05-25 19:24:54,477 - INFO - Updated 1 high-volume markets
+2025-05-25 19:24:54,523 - INFO - Found 1 high-volume markets to monitor:
+2025-05-25 19:24:54,526 - INFO - - KXNHLGAME-25MAY27DALEDM-EDM
+2025-05-25 19:25:13,509 - INFO - Starting WebSocket client...
+2025-05-25 19:34:47,628 - INFO - Updating market list for event: KXNHLGAME-25MAY27DALEDM
+2025-05-25 19:34:47,756 - INFO - Updated 1 high-volume markets
+2025-05-25 19:34:47,762 - INFO - Found 1 high-volume markets to monitor:
+2025-05-25 19:34:47,763 - INFO - - KXNHLGAME-25MAY27DALEDM-EDM
+2025-05-25 19:34:49,332 - INFO - Starting WebSocket client...
+2025-05-25 19:52:33,336 - INFO - Updating market list for event: KXPRESPOLAND
+2025-05-25 19:52:33,492 - INFO - Updated 5 high-volume markets
+2025-05-25 19:52:33,515 - INFO - Found 5 high-volume markets to monitor:
+2025-05-25 19:52:33,517 - INFO - - KXPRESPOLAND-SM
+2025-05-25 19:52:33,517 - INFO - - KXPRESPOLAND-MJ
+2025-05-25 19:52:33,518 - INFO - - KXPRESPOLAND-SH
+2025-05-25 19:52:33,518 - INFO - - KXPRESPOLAND-RT
+2025-05-25 19:52:33,518 - INFO - - KXPRESPOLAND-KN
+2025-05-25 19:52:36,407 - INFO - Starting WebSocket client...
+2025-05-25 19:54:35,426 - INFO - Updating market list for event: KXPRESPOLAND
+2025-05-25 19:54:35,507 - INFO - Updated 5 high-volume markets
+2025-05-25 19:54:35,512 - INFO - Found 5 high-volume markets to monitor:
+2025-05-25 19:54:35,512 - INFO - - KXPRESPOLAND-SM
+2025-05-25 19:54:35,515 - INFO - - KXPRESPOLAND-MJ
+2025-05-25 19:54:35,515 - INFO - - KXPRESPOLAND-SH
+2025-05-25 19:54:35,516 - INFO - - KXPRESPOLAND-RT
+2025-05-25 19:54:35,517 - INFO - - KXPRESPOLAND-KN
+2025-05-25 19:54:37,007 - INFO - Starting WebSocket client...
+2025-05-27 17:58:39,593 - INFO - Updating market list for event: KXPRESPOLAND
+2025-05-27 17:58:39,733 - INFO - Updated 5 high-volume markets
+2025-05-27 17:58:39,735 - INFO - Found 5 high-volume markets to monitor:
+2025-05-27 17:58:39,736 - INFO - - KXPRESPOLAND-SM
+2025-05-27 17:58:39,736 - INFO - - KXPRESPOLAND-MJ
+2025-05-27 17:58:39,737 - INFO - - KXPRESPOLAND-SH
+2025-05-27 17:58:39,737 - INFO - - KXPRESPOLAND-RT
+2025-05-27 17:58:39,738 - INFO - - KXPRESPOLAND-KN
+2025-05-27 17:58:48,109 - INFO - Starting WebSocket client...

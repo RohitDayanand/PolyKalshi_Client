@@ -14,7 +14,7 @@ import sys
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.ERROR,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
@@ -42,6 +42,7 @@ def get_market_by_slug(slug: str) -> Optional[Dict]:
         
         markets = response.json()
         logger.info(f"Found {len(markets)} markets")
+        print(markets)
         
         if not markets:
             logger.warning(f"No market found with slug: {slug}")
