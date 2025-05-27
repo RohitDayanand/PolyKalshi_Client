@@ -82,20 +82,20 @@ class PolymarketWebSocket:
         for order in order_book.get("bids", []):
             #print(f"Order: {order}, I made it here")
             price = float(order["price"])
-            print(f"Price: {price}, I made it here")
+            #print(f"Price: {price}, I made it here")
             size = float(order["size"])
-            print(f"Size: {size}, I made it here")
+           # print(f"Size: {size}, I made it here")
             buy_levels[price] = buy_levels.get(price, 0) + size
-            print(f"Buy levels: {buy_levels}, I made it here")
+           # print(f"Buy levels: {buy_levels}, I made it here")
 
         for order in order_book.get("asks", []):
             #print(f"Order: {order}, I made it here")
             price = float(order["price"])
-            print(f"Price: {price}, I made it here")
+            #print(f"Price: {price}, I made it here")
             size = float(order["size"])
-            print(f"Size: {size}, I made it here")
+            #print(f"Size: {size}, I made it here")
             sell_levels[price] = sell_levels.get(price, 0) + size
-            print(f"Sell levels: {sell_levels}, I made it here")
+            #print(f"Sell levels: {sell_levels}, I made it here")
 
         #If there is neither bid nor ask, return None. This market is not tradable
         if not buy_levels and not sell_levels:
