@@ -1,25 +1,31 @@
 """
-Polymarket WebSocket Client
+Polymarket WebSocket Client with Async Database Support
 
-This script implements a WebSocket client for connecting to Polymarket's real-time market data API.
-It handles subscription to market channels and processes incoming messages for order book and price updates.
+This script implements a WebSocket client for connecting to Polymarket's real-time market data API
+with async SQLAlchemy 2.0 + asyncpg for high-performance database operations.
 
 Key Features:
 - Connects to Polymarket's WebSocket endpoint
 - Subscribes to specific markets and assets
 - Processes and displays real-time order book updates
-- Handles price change notifications
+- Handles price change notifications with async database writes
 - Includes error handling and logging
+- Uses async database operations for concurrent high-frequency data ingestion
 """
 
+import asyncio
 import json
 import websocket
 import time
 import threading
 import logging
 import sys
+print(sys.executable)
 from datetime import datetime, timedelta
-from models import Session, OrderBook, PriceChange, TickSizeChange, init_db
+from models import get_async_session
+from models import OrderBook, PriceChange, TickSizeChange 
+from models import init_async_db
+from models import AsyncDatabaseUtils
 
 # Configure logging
 logging.basicConfig(
@@ -27,7 +33,7 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
         logging.FileHandler('error_diagnosis.log'),
-        logging.StreamHandler(sys.stdout)
+        #logging.StreamHandler(sys.stdout)
     ]
 )
 logger = logging.getLogger(__name__)
@@ -41,90 +47,73 @@ class PolymarketWebSocket:
         self.reconnect_interval = 5  # seconds
         self.is_connected = False
         self.should_reconnect = True
-        self.session = Session()
+        self.event_loop = None
         
-        # Initialize database
-        init_db()
+        # Initialize async database - will be called in async context
+        # Note: Database initialization moved to async_init() method
+
+    async def async_init(self):
+        """Async initialization for database setup."""
+        try:
+            await init_async_db()
+            logger.info("Async database initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize async database: {e}")
+            raise
 
     def load_market_data(self):
         """Load market data from the generated files."""
         try:
-            # Read condition IDs
-            with open(f'poly-starter-code/{self.slug}_condition_id_list.json', 'r') as f:
-                condition_ids = json.load(f)  # This will be a list
-                if not isinstance(condition_ids, list) or len(condition_ids) == 0:
-                    logger.error("Invalid condition IDs format")
-                    return None, None
+            with open(f'{self.slug}_condition_id_list.json', 'r') as f:
+                condition_ids = json.load(f)
             
-            # Read token IDs
-            with open(f'poly-starter-code/{self.slug}_token_ids_list.json', 'r') as f:
-                token_ids = json.load(f)  # This will be a list
-                if not isinstance(token_ids, list) or len(token_ids) == 0:
-                    logger.error("Invalid token IDs format")
-                    return None, None
+            with open(f'{self.slug}_event_token_ids_dict.json', 'r') as f:
+                event_token_ids = json.load(f)
+                
+            with open(f'{self.slug}_token_ids_list.json', 'r') as f:
+                token_ids = json.load(f)
             
-            logger.info(f"Loaded {len(condition_ids)} condition IDs")
-            logger.info(f"Loaded {len(token_ids)} token IDs")
+            logger.info(f"Loaded {len(condition_ids)} condition IDs and {len(token_ids)} token IDs")
             return condition_ids, token_ids
-        except (FileNotFoundError, json.JSONDecodeError) as e:
-            logger.error(f"Error loading market data: {e}")
+            
+        except FileNotFoundError as e:
+            logger.error(f"Market data file not found: {e}")
+            logger.info("Please run Market_Finder.py first to generate market data files")
+            return None, None
+        except json.JSONDecodeError as e:
+            logger.error(f"Error parsing market data JSON: {e}")
             return None, None
 
     def get_market_metrics_with_depth(self, order_book):
         """Calculate market metrics from orderbook data."""
-        # Convert prices and group by price level - growth vs. 
-
-        #college - insanity 
+        # Convert prices and group by price level
 
         buy_levels = {}
         sell_levels = {}
 
         for order in order_book.get("bids", []):
-            #print(f"Order: {order}, I made it here")
             price = float(order["price"])
-            #print(f"Price: {price}, I made it here")
             size = float(order["size"])
-           # print(f"Size: {size}, I made it here")
             buy_levels[price] = buy_levels.get(price, 0) + size
-           # print(f"Buy levels: {buy_levels}, I made it here")
 
         for order in order_book.get("asks", []):
-            #print(f"Order: {order}, I made it here")
             price = float(order["price"])
-            #print(f"Price: {price}, I made it here")
             size = float(order["size"])
-            #print(f"Size: {size}, I made it here")
             sell_levels[price] = sell_levels.get(price, 0) + size
-            #print(f"Sell levels: {sell_levels}, I made it here")
 
-        #If there is neither bid nor ask, return None. This market is not tradable
-        if not buy_levels and not sell_levels:
-            return None
-        
-        #If there is no bid, return the lowest ask. This market is a buy market
-        elif not sell_levels:
-            best_bid = max(buy_levels)
-            best_ask = None 
-
-        #If there is no ask, return the highest bid. This market is not currently tradable
-        elif not buy_levels:
-            best_bid = None
-            best_ask = min(sell_levels)
-        #otherwise there are bids and asks
-        else:
-            best_ask = min(sell_levels)
-            best_bid = max(buy_levels)
+        # Get best bid and ask
+        best_bid = max(buy_levels.keys()) if buy_levels else None
+        best_ask = min(sell_levels.keys()) if sell_levels else None
 
         print(f"Best bid: {best_bid}, Best ask: {best_ask}")
 
-        #Calculate mid_price, but only if there are bids and asks
-
+        # Calculate mid_price, but only if there are bids and asks
         if best_bid and best_ask:
             mid_price = round((best_bid + best_ask) / 2, 4)
         else:
             mid_price = None
 
-        #Calculate spread, but only if there are bids and asks
+        # Calculate spread, but only if there are bids and asks
         if best_bid and best_ask:
             spread = round(best_ask - best_bid, 4)
         else:
@@ -139,8 +128,8 @@ class PolymarketWebSocket:
             "spread": spread
         }
 
-    def handle_orderbook(self, data):
-        """Handle orderbook message and log to database."""
+    async def handle_orderbook(self, data):
+        """Handle orderbook message and log to database (async)."""
         try:
             market_metrics = self.get_market_metrics_with_depth(data)
             if market_metrics:
@@ -150,84 +139,104 @@ class PolymarketWebSocket:
                 logger.warning(f"No market metrics for market {data['market']}")
                 return
             
-            # Log market metrics
-            order = OrderBook(
-                event_type=data['event_type'],
-                asset_id=data['asset_id'],
-                market=data['market'],
-                best_bid=market_metrics['best_bid'],
-                bid_size=market_metrics['bid_size'],
-                best_ask=market_metrics['best_ask'],
-                ask_size=market_metrics['ask_size'],
-                mid_price=market_metrics['mid_price'],
-                spread=market_metrics['spread'],
-                timestamp=data['timestamp']
-            )
-            self.session.add(order)
-            self.session.commit()
+            # Prepare orderbook data for async insertion
+            orderbook_data = {
+                'event_type': data['event_type'],
+                'asset_id': data['asset_id'],
+                'market': data['market'],
+                'best_bid': market_metrics['best_bid'],
+                'bid_size': market_metrics['bid_size'],
+                'best_ask': market_metrics['best_ask'],
+                'ask_size': market_metrics['ask_size'],
+                'mid_price': market_metrics['mid_price'],
+                'spread': market_metrics['spread'],
+                'timestamp': data['timestamp']
+            }
+            
+            # Use async session context manager for database operations
+            async for session in get_async_session():
+                order = OrderBook(**orderbook_data)
+                session.add(order)
+                await session.commit()
+                break  # Exit after successful operation
 
         except Exception as e:
             logger.error(f"Error handling orderbook data: {e}")
-            self.session.rollback()
 
-    def handle_price_change(self, data):
-        """Handle price change message and log to database."""
+    async def handle_price_change(self, data):
+        """Handle price change message and log to database (async)."""
         try:
+            # Prepare price change data for bulk insert
+            price_changes = []
             for change in data.get('changes', []):
-                price_change = PriceChange(
-                    event_type=data['event_type'],
-                    asset_id=data['asset_id'],
-                    market=data['market'],
-                    price=change['price'],
-                    size=change['size'],
-                    side=change['side'],
-                    timestamp=data['timestamp'],
-                    hash=data.get('hash', '')
-                )
-                self.session.add(price_change)
+                price_change_data = {
+                    'event_type': data['event_type'],
+                    'asset_id': data['asset_id'],
+                    'market': data['market'],
+                    'price': change['price'],
+                    'size': change['size'],
+                    'side': change['side'],
+                    'timestamp': data['timestamp'],
+                    'hash': data.get('hash', '')
+                }
+                price_changes.append(price_change_data)
             
-            self.session.commit()
-            logger.debug(f"Logged price change data for market {data['market']}")
+            # Use async bulk insert for better performance
+            async for session in get_async_session():
+                success = await AsyncDatabaseUtils.bulk_insert_price_changes(session, price_changes)
+                if success:
+                    logger.debug(f"Logged {len(price_changes)} price changes for market {data['market']}")
+                break
+
         except Exception as e:
             logger.error(f"Error handling price change data: {e}")
-            self.session.rollback()
 
-    def handle_tick_size_change(self, data):
-        """Handle tick size change message and log to database."""
+    async def handle_tick_size_change(self, data):
+        """Handle tick size change message and log to database (async)."""
         try:
-            tick_change = TickSizeChange(
-                event_type=data['event_type'],
-                asset_id=data['asset_id'],
-                market=data['market'],
-                old_tick_size=data['old_tick_size'],
-                new_tick_size=data['new_tick_size'],
-                timestamp=data['timestamp']
-            )
-            self.session.add(tick_change)
-            self.session.commit()
-            logger.debug(f"Logged tick size change for market {data['market']}")
+            # Prepare tick change data
+            tick_change_data = {
+                'event_type': data['event_type'],
+                'asset_id': data['asset_id'],
+                'market': data['market'],
+                'old_tick_size': data['old_tick_size'],
+                'new_tick_size': data['new_tick_size'],
+                'timestamp': data['timestamp']
+            }
+            
+            # Use async session context manager
+            async for session in get_async_session():
+                tick_change = TickSizeChange(**tick_change_data)                
+                session.add(tick_change)
+                await session.commit()
+                logger.debug(f"Logged tick size change for market {data['market']}")
+                break
+
         except Exception as e:
             logger.error(f"Error handling tick size change data: {e}")
-            self.session.rollback()
 
     def save_raw_message(self, message):
         """Save raw message to a file for debugging."""
         try:
             timestamp = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
-            with open(f'poly-starter-code/raw_messages_{self.slug}.txt', 'a') as f:
+            with open(f'raw_messages_{self.slug}.txt', 'a') as f:
                 f.write(f"\n{'='*50}\n")
                 f.write(f"Timestamp: {timestamp}\n")
                 # Only save the first 100 characters of the message to avoid huge files
                 f.write(f"Message preview: {str(message)[:100]}...\n")
                 f.write(f"{'='*50}\n")
         except Exception as e:
-            logger.error(f"Error saving raw message: {e}")
-
+            logger.error(f"Error saving raw message: {e}")    
     def on_message(self, ws, message):
-        """Handle incoming messages."""
         try:
             # Save raw message to file
             self.save_raw_message(message)
+            
+            # Handle PONG messages first (they're not JSON)
+            if message == "PONG":
+                self.last_pong = datetime.now()
+                logger.debug("Received PONG response")
+                return
             
             data = json.loads(message)
             
@@ -240,13 +249,25 @@ class PolymarketWebSocket:
                 if msg.get('type') == 'PONG':
                     self.last_pong = datetime.now()
                     continue
+                    
                 event_type = msg.get('event_type')
+                
+                # Run async database operations in event loop
                 if event_type == 'book':
-                    self.handle_orderbook(msg)
+                    asyncio.run_coroutine_threadsafe(
+                        self.handle_orderbook(msg), 
+                        self.event_loop
+                    )
                 elif event_type == 'price_change':
-                    self.handle_price_change(msg)
+                    asyncio.run_coroutine_threadsafe(
+                        self.handle_price_change(msg), 
+                        self.event_loop
+                    )
                 elif event_type == 'tick_size_change':
-                    self.handle_tick_size_change(msg)
+                    asyncio.run_coroutine_threadsafe(
+                        self.handle_tick_size_change(msg), 
+                        self.event_loop
+                    )
                 
         except json.JSONDecodeError:
             logger.error(f"Failed to parse message")
@@ -332,6 +353,25 @@ class PolymarketWebSocket:
 
     def run(self):
         """Run the WebSocket client with heartbeat and reconnection."""
+        # Set up event loop for async operations
+        self.event_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self.event_loop)
+        
+        # Initialize async database in the event loop
+        try:
+            self.event_loop.run_until_complete(self.async_init())
+        except Exception as e:
+            logger.error(f"Failed to initialize async components: {e}")
+            return
+        
+        # Start async event loop in a separate thread
+        def run_event_loop():
+            self.event_loop.run_forever()
+        
+        loop_thread = threading.Thread(target=run_event_loop)
+        loop_thread.daemon = True
+        loop_thread.start()
+        
         # Start ping thread
         ping_thread = threading.Thread(target=self.send_ping)
         ping_thread.daemon = True
@@ -354,7 +394,9 @@ class PolymarketWebSocket:
             self.should_reconnect = False
             if self.ws:
                 self.ws.close()
-            self.session.close()
+            # Stop the event loop
+            if self.event_loop and self.event_loop.is_running():
+                self.event_loop.call_soon_threadsafe(self.event_loop.stop)
 
 def main():
     # Get slug from command line argument
@@ -363,9 +405,9 @@ def main():
         sys.exit(1)
     
     slug = sys.argv[1]
-    logger.info(f"Starting WebSocket connection for market: {slug}")
+    logger.info(f"Starting async WebSocket connection for market: {slug}")
     
-    # Create and run WebSocket client
+    # Create and run WebSocket client with async database support
     client = PolymarketWebSocket(slug)
     client.run()
 
