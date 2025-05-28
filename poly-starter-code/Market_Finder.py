@@ -10,6 +10,7 @@ import json
 from typing import Dict, Optional, List
 import logging
 import sys
+import os
 #
 
 # Configure logging
@@ -107,12 +108,13 @@ def print_market_details(market: Dict):
     print(f"Liquidity: {market.get('liquidity')}")
     print(f"Volume: {market.get('volume')}")
     print(f"Start Date: {market.get('start_date')}")
-    print(f"End Date: {market.get('end_date')}")
-    print("-" * 50)
+    print(f"End Date: {market.get('end_date')}")   
     # Print formatted JSON to console
     print(json.dumps(market, indent=4))
     #Now append the market data to a file
-    with open('market_data.json', 'a') as f:
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    market_data_file = os.path.join(script_dir, 'market_data.json')
+    with open(market_data_file, 'a') as f:
         f.write(json.dumps(market, indent=4))
         f.write('\n')
     
@@ -143,12 +145,10 @@ def create_events_data(event_list: Dict):
         event_token_ids_dict = {
            store_event_data(event).get('token_ids')[0]: f"yes_{event.get('question')}",
            store_event_data(event).get('token_ids')[1]: f"no_{event.get('question')}"
-        }
-
-        #now store the event_token_ids_dict in a JSON file  
-
-        
-        with open(f'poly-starter-code/{slug}_event_token_ids_dict.json', 'w') as f:
+        }        #now store the event_token_ids_dict in a JSON file  
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        event_token_ids_file = os.path.join(script_dir, f'{slug}_event_token_ids_dict.json')
+        with open(event_token_ids_file, 'w') as f:
             json.dump(event_token_ids_dict, f, indent=4)
 
     return condition_id_list, token_ids_list
@@ -163,9 +163,13 @@ if __name__ == "__main__":
         print_market_details(market_data)
         condition_id_list, token_ids_list = create_events_data(market_data.get('markets'))
         #now store the condition id and token ids in a seperate file
-        with open(f'poly-starter-code/{slug}_condition_id_list.json', 'w') as f:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        condition_id_file = os.path.join(script_dir, f'{slug}_condition_id_list.json')
+        token_ids_file = os.path.join(script_dir, f'{slug}_token_ids_list.json')
+        
+        with open(condition_id_file, 'w') as f:
             json.dump(condition_id_list, f, indent=4)
-        with open(f'poly-starter-code/{slug}_token_ids_list.json', 'w') as f:
+        with open(token_ids_file, 'w') as f:
             json.dump(token_ids_list, f, indent=4)
     else:
         logger.error("No market found")
