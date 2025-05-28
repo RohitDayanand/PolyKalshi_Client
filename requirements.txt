@@ -19,3 +19,5 @@ setuptools==80.7.1
 six==1.17.0
 SQLAlchemy==2.0.41
 websocket-client==1.8.0
+cryptography
+psycopg[async]
