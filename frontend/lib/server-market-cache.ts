@@ -36,26 +36,73 @@ export class ServerMarketCache {
   private cacheLifetime: number = 30 * 60 * 1000 // 30 minutes
 
   /**
-   * Fetch markets from Polymarket CLOB API
+   * Fetch markets from Polymarket CLOB API with cursor pagination
    */
   async fetchPolymarketMarkets(): Promise<CachedMarket[]> {
+    const allMarkets: CachedMarket[] = []
+    let nextCursor: string | null = null
+    const maxMarkets = 2500 // Half of our 5000 target
+    const batchSize = 500 // Polymarket API limit per request
+    let offset = 0
+    
     try {
-      const response = await fetch('https://gamma-api.polymarket.com/markets?active=true&closed=false&archived=false&limit=1000', {
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json'
-        }
-      })
+      console.log(`🔄 Starting Polymarket pagination (target: ${maxMarkets} markets)`)
       
-      if (!response.ok) {
-        throw new Error(`CLOB API request failed: ${response.status} ${response.statusText}`)
-      }
+      while (allMarkets.length < maxMarkets) {
+        // Build URL with cursor pagination
+        let url = `https://gamma-api.polymarket.com/markets?active=true&closed=false&archived=false&limit=${batchSize}&offset=${offset}`
+        if (offset < maxMarkets) {
+          offset += batchSize
+        }
+        
+        console.log(`📥 Fetching Polymarket batch ${Math.ceil(allMarkets.length / batchSize) + 1}...`)
+        console.log(`🔗 Request URL: ${url}`)
+        
+        const response = await fetch(url, {
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json'
+          }
+        })
+        
+        if (!response.ok) {
+          throw new Error(`CLOB API request failed: ${response.status} ${response.statusText}`)
+        }
 
-      const data = await response.json()
-      return this.transformClobApiResponse(data)
+        const data = await response.json()
+        
+        // Debug: Log the response structure
+        console.log('🔍 API Response structure:')
+        console.log('- Response keys:', Object.keys(data))
+        console.log('- next_cursor value:', data.next_cursor)
+        console.log('- next_cursor type:', typeof data.next_cursor)
+        console.log('- Raw response sample:', JSON.stringify(data, null, 2).substring(0, 500) + '...')
+        
+        const batchMarkets = this.transformClobApiResponse(data)
+        
+        if (batchMarkets.length === 0) {
+          console.log('📭 No more Polymarket markets available')
+          break
+        }
+        
+        allMarkets.push(...batchMarkets)
+        console.log(`✅ Polymarket batch complete: ${batchMarkets.length} markets (total: ${allMarkets.length})`)
+        
+        // Check for next cursor
+        nextCursor = data.next_cursor || null
+        console.log('🔗 Offset', offset)
+
+        
+        // Small delay to be respectful to the API
+        await new Promise(resolve => setTimeout(resolve, 100))
+      }
+      
+      console.log(`🎯 Polymarket fetch complete: ${allMarkets.length} markets cached`)
+      return allMarkets.slice(0, maxMarkets) // Ensure we don't exceed target
+      
     } catch (error) {
       console.error('Failed to fetch from CLOB API:', error)
-      return []
+      return allMarkets // Return whatever we managed to fetch
     }
   }
 
@@ -67,7 +114,7 @@ export class ServerMarketCache {
     const marketsList = apiData.data || apiData.markets || apiData || []
     
     if (Array.isArray(marketsList)) {
-      for (const market of marketsList.slice(0, 300)) {
+      for (const market of marketsList) {
         const tokenPair = this.extractTokenPair(market)
         
         markets.push({
@@ -181,26 +228,77 @@ export class ServerMarketCache {
   }
 
   /**
-   * Fetch markets from Kalshi API
+   * Fetch markets from Kalshi API with cursor pagination
    */
   async fetchKalshiMarkets(): Promise<CachedMarket[]> {
+    const allMarkets: CachedMarket[] = []
+    let cursor: string | null = null
+    const maxMarkets = 2500 // Half of our 5000 target
+    const batchSize = 500 // Kalshi API limit per request
+    
     try {
-      const response = await fetch('https://api.elections.kalshi.com/trade-api/v2/markets?limit=1000&status=open', {
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json'
-        }
-      })
+      console.log(`🔄 Starting Kalshi pagination (target: ${maxMarkets} markets)`)
       
-      if (!response.ok) {
-        throw new Error(`Kalshi API request failed: ${response.status} ${response.statusText}`)
-      }
+      while (allMarkets.length < maxMarkets) {
+        // Build URL with cursor pagination
+        let url = `https://api.elections.kalshi.com/trade-api/v2/markets?status=open&limit=${batchSize}`
+        if (cursor) {
+          url += `&cursor=${encodeURIComponent(cursor)}`
+        }
+        
+        console.log(`📥 Fetching Kalshi batch ${Math.ceil(allMarkets.length / batchSize) + 1}...`)
+        console.log(`🔗 Request URL: ${url}`)
+        
+        const response = await fetch(url, {
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json'
+          }
+        })
+        
+        if (!response.ok) {
+          throw new Error(`Kalshi API request failed: ${response.status} ${response.statusText}`)
+        }
 
-      const data = await response.json()
-      return this.transformKalshiApiResponse(data)
+        const data = await response.json()
+        
+        // Debug: Log the response structure
+        console.log('🔍 Kalshi API Response structure:')
+        console.log('- Response keys:', Object.keys(data))
+        console.log('- cursor value:', data.cursor)
+        console.log('- cursor type:', typeof data.cursor)
+        console.log('- Raw response sample:', JSON.stringify(data, null, 2).substring(0, 500) + '...')
+        
+        const batchMarkets = this.transformKalshiApiResponse(data)
+        
+        if (batchMarkets.length === 0) {
+          console.log('📭 No more Kalshi markets available')
+          break
+        }
+        
+        allMarkets.push(...batchMarkets)
+        console.log(`✅ Kalshi batch complete: ${batchMarkets.length} markets (total: ${allMarkets.length})`)
+        
+        // Check for next cursor
+        cursor = data.cursor || null
+        console.log('🔗 Next cursor extracted:', cursor)
+        
+     
+        if (!cursor) {
+          console.log('🏁 Reached end of Kalshi pagination')
+          break
+        }
+        
+        // Small delay to be respectful to the API
+        await new Promise(resolve => setTimeout(resolve, 100))
+      }
+      
+      console.log(`🎯 Kalshi fetch complete: ${allMarkets.length} markets cached`)
+      return allMarkets.slice(0, maxMarkets) // Ensure we don't exceed target
+      
     } catch (error) {
       console.error('Failed to fetch from Kalshi API:', error)
-      return []
+      return allMarkets // Return whatever we managed to fetch
     }
   }
 
@@ -212,7 +310,7 @@ export class ServerMarketCache {
     const marketsList = apiData.markets || apiData.data || apiData || []
     
     if (Array.isArray(marketsList)) {
-      for (const market of marketsList.slice(0, 300)) {
+      for (const market of marketsList) {
         markets.push({
           id: market.ticker || market.id || `kalshi_${Date.now()}_${markets.length}`,
           title: market.title || market.subtitle || market.ticker || 'Unknown Market',
@@ -301,26 +399,80 @@ export class ServerMarketCache {
   /**
    * Search cached markets
    */
-  searchMarkets(query: string, maxResults: number = 20): CachedMarket[] {
+  searchMarkets(query: string, maxResults: number = 50): CachedMarket[] {
     const results: CachedMarket[] = []
     const lowercaseQuery = query.toLowerCase()
 
-    console.log(`🔍 Searching for "${query}" in ${this.memoryCache.size} cached markets`)
+    // Count markets by platform for debugging
+    let polymarketCount = 0
+    let kalshiCount = 0
+    for (const market of this.memoryCache.values()) {
+      if (market.platform === 'polymarket') polymarketCount++
+      if (market.platform === 'kalshi') kalshiCount++
+    }
+
+    console.log(`🔍 Searching for "${query}" in ${this.memoryCache.size} cached markets (${polymarketCount} Polymarket, ${kalshiCount} Kalshi)`)
 
     for (const market of this.memoryCache.values()) {
       if (results.length >= maxResults) break
 
       const titleMatch = market.title?.toLowerCase().includes(lowercaseQuery) || false
       const slugMatch = market.slug?.toLowerCase().includes(lowercaseQuery) || false
-      const categoryMatch = market.category?.toLowerCase().includes(lowercaseQuery) || false
 
-      if (titleMatch || slugMatch || categoryMatch) {
-        console.log(`✅ Found match: "${market.title}"`)
+      if (titleMatch || slugMatch) {
+        console.log(`✅ Found match [${market.platform.toUpperCase()}]: "${market.title}"`)
         results.push(market)
       }
     }
 
-    console.log(`🎯 Search completed: ${results.length} results found`)
+    // Count results by platform
+    const polymarketResults = results.filter(m => m.platform === 'polymarket').length
+    const kalshiResults = results.filter(m => m.platform === 'kalshi').length
+    console.log(`🎯 Search completed: ${results.length} total results (${polymarketResults} Polymarket, ${kalshiResults} Kalshi)`)
+
+    // Sort by relevance (exact matches first, then by volume)
+    return results.sort((a, b) => {
+      const aExactMatch = a.title.toLowerCase() === lowercaseQuery
+      const bExactMatch = b.title.toLowerCase() === lowercaseQuery
+      
+      if (aExactMatch && !bExactMatch) return -1
+      if (!aExactMatch && bExactMatch) return 1
+      
+      return b.volume - a.volume
+    })
+  }
+
+  /**
+   * Search cached markets filtered by platform
+   */
+  searchMarketsByPlatform(query: string, platform: 'polymarket' | 'kalshi', maxResults: number = 50): CachedMarket[] {
+    const results: CachedMarket[] = []
+    const lowercaseQuery = query.toLowerCase()
+
+    // Count markets by platform for debugging
+    let platformCount = 0
+    for (const market of this.memoryCache.values()) {
+      if (market.platform === platform) platformCount++
+    }
+
+    console.log(`🔍 Searching for "${query}" in ${platformCount} ${platform.toUpperCase()} markets only`)
+
+    for (const market of this.memoryCache.values()) {
+      // Skip markets from other platforms
+      if (market.platform !== platform) continue
+      
+      if (results.length >= maxResults) break
+
+      const titleMatch = market.title?.toLowerCase().includes(lowercaseQuery) || false
+      const slugMatch = market.slug?.toLowerCase().includes(lowercaseQuery) || false
+
+      if (titleMatch || slugMatch) {
+        console.log(`✅ Found ${platform.toUpperCase()} match: "${market.title}"`)
+        results.push(market)
+      }
+    }
+
+    console.log(`🎯 ${platform.toUpperCase()} search completed: ${results.length} results found`)
 
     // Sort by relevance (exact matches first, then by volume)
     return results.sort((a, b) => {

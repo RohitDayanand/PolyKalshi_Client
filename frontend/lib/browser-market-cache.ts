@@ -67,10 +67,32 @@ export class BrowserMarketCache {
    * Initialize cache and start background updates
    */
   private initializeCache() {
-    // Start automatic updates
-    this.updateTimer = window.setInterval(() => {
-      this.refreshCache()
-    }, this.config.updateInterval)
+    // Load cache on first browser start, but don't set up automatic polling
+    this.refreshCacheOnFirstLoad()
+    
+    // Automatic updates DISABLED to prevent polling
+    // this.updateTimer = window.setInterval(() => {
+    //   this.refreshCache()
+    // }, this.config.updateInterval)
+  }
+
+  /**
+   * Refresh cache only if it's empty or very stale (first load)
+   */
+  private async refreshCacheOnFirstLoad() {
+    try {
+      const stats = this.getCacheStats()
+      
+      // Only refresh if cache is empty or very old (first browser start)
+      if (stats.marketCount === 0 || stats.cacheAge > 2 * 60 * 60 * 1000) { // 2 hours
+        console.log('🚀 First load: refreshing cache...')
+        await this.refreshCache()
+      } else {
+        console.log('📋 Using existing cached data')
+      }
+    } catch (error) {
+      console.error('Failed to check cache on first load:', error)
+    }
   }
 
   /**

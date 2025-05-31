@@ -47,22 +47,19 @@ async function getMarketCache() {
 interface SearchConfig {
   maxResults: number
   enableFuzzySearch: boolean
-  includeCategories: string[]
   minVolumeThreshold?: number
   clobApiUrl?: string
 }
 
 const defaultConfig: SearchConfig = {
-  maxResults: 20,
+  maxResults: 50, // Increased from 20 to capture more diverse results
   enableFuzzySearch: true,
-  includeCategories: ['Politics', 'Economics', 'Sports', 'Technology', 'Entertainment'],
   minVolumeThreshold: 1000,
   clobApiUrl: 'https://clob.polymarket.com'
 }
 
 /**
  * Main search service class
- * Define your custom search logic here
  */
 export class MarketSearchService {
   private config: SearchConfig
@@ -80,19 +77,22 @@ export class MarketSearchService {
       const cache = await getMarketCache()
       console.log('✅ Got cache instance')
       
-      // Check if cache needs refresh
+      // Check if cache needs refresh - Only on first load when empty
       const cacheStats = cache.getCacheStats()
       console.log('📊 Cache stats:', cacheStats)
       
-      if (cacheStats.isStale || cacheStats.marketCount === 0) {
-        console.log('🔄 Refreshing market cache...')
+      if (cacheStats.marketCount === 0) {
+        console.log('🔄 First load: Refreshing empty cache...')
         await cache.refreshCache()
+      } else {
+        console.log('📋 Using existing cached data - no automatic refresh')
       }
 
-      // Search cached markets - filter for Polymarket only
-      console.log(`🔎 Searching ${cacheStats.marketCount} cached markets for "${query}"`)
-      const allCachedResults = cache.searchMarkets(query, this.config.maxResults * 2) // Get more to filter
-      const polymarketResults = allCachedResults.filter((market: CachedMarket) => market.platform === 'polymarket')
+      // Search cached markets - Polymarket only
+      console.log(`🔎 Searching Polymarket markets specifically for "${query}"`)
+      const polymarketResults = cache.searchMarketsByPlatform 
+        ? cache.searchMarketsByPlatform(query, 'polymarket', this.config.maxResults)
+        : cache.searchMarkets(query, this.config.maxResults * 2).filter((market: CachedMarket) => market.platform === 'polymarket')
       console.log(`✅ Found ${polymarketResults.length} Polymarket results`)
       
       // If we have cached results, use them
@@ -129,19 +129,22 @@ export class MarketSearchService {
       const cache = await getMarketCache()
       console.log('✅ Got cache instance')
       
-      // Check if cache needs refresh
+      // Check if cache needs refresh - Only on first load when empty
       const cacheStats = cache.getCacheStats()
       console.log('📊 Cache stats:', cacheStats)
       
-      if (cacheStats.isStale || cacheStats.marketCount === 0) {
-        console.log('🔄 Refreshing market cache...')
+      if (cacheStats.marketCount === 0) {
+        console.log('🔄 First load: Refreshing empty cache...')
         await cache.refreshCache()
+      } else {
+        console.log('📋 Using existing cached data - no automatic refresh')
       }
 
-      // Search cached markets - filter for Kalshi only
-      console.log(`🔎 Searching ${cacheStats.marketCount} cached markets for "${query}"`)
-      const allCachedResults = cache.searchMarkets(query, this.config.maxResults * 2) // Get more to filter
-      const kalshiResults = allCachedResults.filter((market: CachedMarket) => market.platform === 'kalshi')
+      // Search cached markets - Kalshi only
+      console.log(`🔎 Searching Kalshi markets specifically for "${query}"`)
+      const kalshiResults = cache.searchMarketsByPlatform 
+        ? cache.searchMarketsByPlatform(query, 'kalshi', this.config.maxResults)
+        : cache.searchMarkets(query, this.config.maxResults * 2).filter((market: CachedMarket) => market.platform === 'kalshi')
       console.log(`✅ Found ${kalshiResults.length} Kalshi results`)
       
       // If we have cached results, use them
@@ -183,17 +186,15 @@ export class MarketSearchService {
       `${query} prediction market - which scenario is most likely?`
     ]
 
-    const categories = this.config.includeCategories
     const results: Market[] = []
 
     for (let i = 0; i < Math.min(questionTemplates.length, this.config.maxResults); i++) {
       const template = questionTemplates[i]
-      const category = categories[i % categories.length]
       
       results.push({
         id: `poly_${Date.now()}_${i}`,
         title: template,
-        category,
+        category: 'General', // Default category since categories are removed
         volume: this.generateRandomVolume(),
         price: Math.random(),
         platform: 'polymarket'
@@ -217,17 +218,15 @@ export class MarketSearchService {
       `Will there be a ${query} announcement in 2025?`
     ]
 
-    const categories = this.config.includeCategories
     const results: Market[] = []
 
     for (let i = 0; i < Math.min(questionTemplates.length, this.config.maxResults); i++) {
       const template = questionTemplates[i]
-      const category = categories[i % categories.length]
       
       results.push({
         id: `kalshi_${Date.now()}_${i}`,
         title: template,
-        category,
+        category: 'General', // Default category since categories are removed
         volume: this.generateRandomVolume(),
         liquidity: this.generateRandomLiquidity(),
         platform: 'kalshi'
