@@ -73,10 +73,11 @@ export function CacheDebugPanel() {
 
   useEffect(() => {
     loadCacheData()
-    const interval = setInterval(() => {
-      loadCacheData()
-    }, 30000) // Update every 30 seconds
-    return () => clearInterval(interval)
+    // Disable automatic polling to prevent constant API calls
+    // const interval = setInterval(() => {
+    //   loadCacheData()
+    // }, 30000) // Update every 30 seconds
+    // return () => clearInterval(interval)
   }, [])
 
   return (

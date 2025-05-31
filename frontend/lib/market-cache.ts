@@ -72,12 +72,12 @@ export class MarketCacheService {
       await this.loadFromFile()
     }
 
-    // Set up automatic updates
-    if (this.config.updateInterval) {
-      this.updateTimer = setInterval(() => {
-        this.refreshCache()
-      }, this.config.updateInterval)
-    }
+    // Set up automatic updates - DISABLED to prevent automatic polling
+    // if (this.config.updateInterval) {
+    //   this.updateTimer = setInterval(() => {
+    //     this.refreshCache()
+    //   }, this.config.updateInterval)
+    // }
   }
 
   /**

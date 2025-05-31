@@ -10,10 +10,11 @@ export async function GET(request: NextRequest) {
     const cacheStats = serverMarketCache.getCacheStats()
     console.log('Cache stats:', cacheStats)
     
-    if (cacheStats.marketCount === 0) {
-      console.log('Cache is empty, refreshing...')
-      await serverMarketCache.refreshCache()
-    }
+    // DISABLED automatic refresh to prevent polling
+    // if (cacheStats.marketCount === 0) {
+    //   console.log('Cache is empty, refreshing...')
+    //   await serverMarketCache.refreshCache()
+    // }
 
     // Search directly in cache
     console.log(`Searching for "${query}" in cache...`)

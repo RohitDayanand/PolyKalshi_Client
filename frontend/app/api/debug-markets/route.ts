@@ -3,8 +3,8 @@ import { serverMarketCache } from '@/lib/server-market-cache'
 
 export async function GET() {
   try {
-    // Refresh cache first
-    await serverMarketCache.refreshCache()
+    // DISABLED automatic refresh to prevent polling
+    // await serverMarketCache.refreshCache()
     
     // Get cache stats
     const stats = serverMarketCache.getCacheStats()
