@@ -6,6 +6,7 @@ export interface Market {
   liquidity?: number
   price?: number
   platform?: "polymarket" | "kalshi"
+  lastUpdated?: string
 }
 
 export interface SearchResults {

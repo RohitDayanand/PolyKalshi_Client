@@ -19,9 +19,15 @@ export default function DashboardPage() {
             <h1 className="text-2xl font-bold">Market Analysis Dashboard</h1>
           </div>
         </header>
-        <main className="flex-1 container py-6">
-          <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
-            <div className="md:col-span-3 space-y-6">
+        <main className="flex-1 container py-6 max-w-full">
+          {/* Full-width Visualization Panel */}
+          <div className="mb-8">
+            <VisualizationPanel />
+          </div>
+          
+          {/* Below: Sidebar content in a responsive grid */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="space-y-6">
               <Tabs value={activeTab} onValueChange={setActiveTab}>
                 <TabsList className="grid grid-cols-2 w-full">
                   <TabsTrigger value="polymarket">Polymarket</TabsTrigger>
@@ -36,10 +42,7 @@ export default function DashboardPage() {
               </Tabs>
               <SubscribedMarkets />
             </div>
-            <div className="md:col-span-6">
-              <VisualizationPanel />
-            </div>
-            <div className="md:col-span-3">
+            <div>
               <CacheDebugPanel />
             </div>
           </div>
