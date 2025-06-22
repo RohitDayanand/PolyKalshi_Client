@@ -1,38 +1,36 @@
 
-/*
 import { useAppSelector, useAppDispatch } from '../../../lib/store/hooks'
 import { setChartInstance, clearChartInstance } from '../../../lib/store/chartInstanceSlice'
 import { IChartApi } from 'lightweight-charts'
 
-export function useChartInstanceState() {
+export function useChartInstanceState(chartId: string) {
   const chartInstance = useAppSelector((state) => {
-    console.log('📊 Redux Selector - useChartInstanceState accessed:', {
-      fullState: state,
-      chartInstance: state.chartInstance,
-      chartInstanceValue: state.chartInstance.chartInstance,
-      timestamp: new Date().toISOString()
-    })
-    return state.chartInstance.chartInstance
+    console.log('📊 Redux Selector - useChartInstanceState chartId:', chartId)
+    console.log('📊 Redux Selector - Chart Instance instances:', state.chartInstance.chartInstances)
+    const instance = state.chartInstance.chartInstances[chartId]
+    const instanceValue = instance?.chartInstance || null
+    console.log('📊 Redux Selector - Chart Instance for chartId', chartId, ':', instanceValue)
+    return instanceValue
   })
 
   const dispatch = useAppDispatch()
 
   const setInstance = (instance: { instance: IChartApi; handleResize: () => void } | null) => {
-    console.log('🎛️ Hook Call - useChartInstanceState.setInstance:', {
+    console.log('🎛️ Hook Call - useChartInstanceState.setInstance for chartId', chartId, ':', {
       newInstance: instance,
       timestamp: new Date().toISOString()
     })
-    dispatch(setChartInstance(instance))
+    dispatch(setChartInstance({ chartId, instance }))
   }
 
   const clearInstance = () => {
-    console.log('🗑️ Hook Call - useChartInstanceState.clearInstance:', {
+    console.log('🗑️ Hook Call - useChartInstanceState.clearInstance for chartId:', chartId, {
       timestamp: new Date().toISOString()
     })
-    dispatch(clearChartInstance())
+    dispatch(clearChartInstance(chartId))
   }
 
-  console.log('🎣 useChartInstanceState hook - Current chartInstance:', chartInstance)
+  console.log('🎣 useChartInstanceState hook - chartId:', chartId, 'chartInstance:', chartInstance)
 
   return {
     chartInstance,
@@ -40,4 +38,3 @@ export function useChartInstanceState() {
     clearInstance
   }
 }
-*/

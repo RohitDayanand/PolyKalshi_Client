@@ -131,6 +131,7 @@ export function VisualizationPanel() {
                   className="market-1-chart w-full h-full"
                   staticData={market1Data}
                   setStaticData={setMarket1Data}
+                  chartId="market-1"
                 />
               ) : (
                 <div className="flex items-center justify-center h-full text-muted-foreground">
@@ -178,7 +179,17 @@ export function VisualizationPanel() {
               </Select>
             </CardHeader>
             <CardContent className="h-[500px] p-2">
-              {market2 ? renderChart(market2ChartType, [market2]) : (
+              {market2 ? (
+                <AdaptiveChart
+                  isVisible={true}
+                  showControls={true}
+                  containerHeight={500}
+                  className="market-2-chart w-full h-full"
+                  staticData={market1Data}
+                  setStaticData={setMarket1Data} //irrelevant - reac
+                  chartId="market-2"
+                />
+              ) : (
                 <div className="flex items-center justify-center h-full text-muted-foreground">
                   Select a market to view chart
                 </div>
@@ -206,7 +217,15 @@ export function VisualizationPanel() {
           </CardHeader>
           <CardContent className="h-[520px] p-4">
             {centerMarkets.length > 0 ? (
-              renderChart(centerChartType, centerMarkets)
+              <AdaptiveChart
+                  isVisible={true}
+                  showControls={true}
+                  containerHeight={500}
+                  className="comparison-chart w-full h-full"
+                  staticData={market1Data}
+                  setStaticData={setMarket1Data} //irrelevant - reac
+                  chartId="comparison"
+                />
             ) : (
               <div className="flex items-center justify-center h-full text-muted-foreground">
                 Select markets above to compare them here

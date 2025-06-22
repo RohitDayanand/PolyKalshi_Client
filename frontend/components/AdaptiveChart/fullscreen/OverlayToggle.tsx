@@ -39,28 +39,30 @@ interface OverlayToggleProps {
     onClose: () => void;
     className?: string;
     chartInstance: IChartApi | null;
+    chartId: string;
 }
 
 export function OverlayToggle({
   isVisible,
   onClose,
   chartInstance,
+  chartId,
   className = "OverlayToggle"
 }: OverlayToggleProps) {
   // STATE HOOKS
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedOverlays, setSelectedOverlays] = useState<Set<string>>(new Set())
   
-  // REDUX HOOKS: Chart state and overlay management
-  const { selectedView } = useChartViewState()
-  const { selectedRange } = useChartRangeState()
+  // REDUX HOOKS: Chart state and overlay management - now using chartId
+  const { selectedView } = useChartViewState(chartId)
+  const { selectedRange } = useChartRangeState(chartId)
   const { 
     overlays, 
     addOverlay, 
     deleteOverlay, 
     toggleOverlayEnabled,
     toggleOverlayAvailable 
-  } = useOverlayState()
+  } = useOverlayState(chartId)
 
   // FUZZY SEARCH IMPLEMENTATION
   const fuzzySearch = useCallback((query: string, target: string, keywords: string[]): boolean => {

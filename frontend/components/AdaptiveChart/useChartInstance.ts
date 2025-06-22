@@ -47,7 +47,7 @@ interface UseChartInstanceProps {
   containerHeight?: number
   staticData: { yes: LinePoint[]; no: LinePoint[] }
   setStaticData: (d: { yes: LinePoint[]; no: LinePoint[] }) => void
-  chartId?: string
+  chartId: string
 }
 
 export function useChartInstance({
@@ -58,12 +58,12 @@ export function useChartInstance({
   chartId
 }: UseChartInstanceProps) {
   /* --------------------------------------------------------------- */
-  /*  global redux state                                             */
+  /*  global redux state - now using chartId for isolated state     */
   /* --------------------------------------------------------------- */
 
-  const { selectedRange } = useChartRangeState()  // '1H' | '1W' | ...
-  const { selectedView }  = useChartViewState()   // 'YES' | 'NO' | 'BOTH'
-  const { getSubscriptionId } = useMarketSubscriptionState() // Get subscription IDs
+  const { selectedRange } = useChartRangeState(chartId)  // '1H' | '1W' | ...
+  const { selectedView }  = useChartViewState(chartId)   // 'YES' | 'NO' | 'BOTH'
+  const { getSubscriptionId } = useMarketSubscriptionState(chartId) // Get subscription IDs
 
   /* --------------------------------------------------------------- */
   /*  local refs                                             */

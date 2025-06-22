@@ -66,6 +66,7 @@ const OVERLAY_CLASS_MAP: Record<string, ConcreteSeriesClass> = {
 
 interface UseOverlayManagerProps {
   chartInstanceRef: MutableRefObject<IChartApi | null>
+  chartId: string
 }
 const BOTTOM_CLASS_MAP: string[] = [
   'yes_volume_profile',
@@ -73,12 +74,12 @@ const BOTTOM_CLASS_MAP: string[] = [
   'universal_volume_profile'
 ]
 
-export function useOverlayManager({ chartInstanceRef }: UseOverlayManagerProps) {
-  // Redux state hooks
-  const { overlays, addOverlay } = useOverlayState()
-  const { selectedView } = useChartViewState()
-  const { selectedRange } = useChartRangeState()
-  const { getSubscriptionId } = useMarketSubscriptionState() // Get subscription IDs
+export function useOverlayManager({ chartInstanceRef, chartId }: UseOverlayManagerProps) {
+  // Redux state hooks - now using chartId for isolated state
+  const { overlays, addOverlay } = useOverlayState(chartId)
+  const { selectedView } = useChartViewState(chartId)
+  const { selectedRange } = useChartRangeState(chartId)
+  const { getSubscriptionId } = useMarketSubscriptionState(chartId) // Get subscription IDs
   
   // Map to store actual SeriesClass instances
   // Memoize this in later iterations, make lookups more efficient
