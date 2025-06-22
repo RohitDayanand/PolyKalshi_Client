@@ -1,36 +1,55 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit'
 import { Overlay, OverlayDictionary, SeriesType, TimeRange } from '../chart-types'
 
-interface OverlayState {
+interface OverlayInstanceState {
   overlays: OverlayDictionary
 }
 
-const initialState: OverlayState = {
-  overlays: {}
+interface OverlayState {
+  chartInstances: Record<string, OverlayInstanceState>
 }
+
+const initialState: OverlayState = {
+  chartInstances: {}
+}
+
+const getDefaultInstanceState = (): OverlayInstanceState => ({
+  overlays: {}
+})
 
 export const overlaySlice = createSlice({
   name: 'overlay',
   initialState,
   reducers: {
-    setOverlay: (state, action: PayloadAction<{ name: string; overlay: Overlay }>) => {
-      console.log('🏪 Redux Reducer - Previous overlay state:', state.overlays)
-      console.log('🏪 Redux Reducer - Setting overlay:', action.payload)
-      state.overlays[action.payload.name] = action.payload.overlay
-      console.log('🏪 Redux Reducer - New overlay state:', state.overlays)
+    setOverlay: (state, action: PayloadAction<{ chartId: string; name: string; overlay: Overlay }>) => {
+      const { chartId, name, overlay } = action.payload
+      console.log('🏪 Redux Reducer - overlay/setOverlay:', { chartId, name, overlay })
+      
+      // Initialize chart instance if it doesn't exist
+      if (!state.chartInstances[chartId]) {
+        state.chartInstances[chartId] = getDefaultInstanceState()
+      }
+      
+      state.chartInstances[chartId].overlays[name] = overlay
     },
     
-    removeOverlay: (state, action: PayloadAction<string>) => {
-      console.log('🏪 Redux Reducer - Removing overlay by name:', action.payload)
-      delete state.overlays[action.payload]
-      console.log('🏪 Redux Reducer - Overlay state after removal:', state.overlays)
+    removeOverlay: (state, action: PayloadAction<{ chartId: string; name: string }>) => {
+      const { chartId, name } = action.payload
+      console.log('🏪 Redux Reducer - overlay/removeOverlay:', { chartId, name })
+      
+      if (state.chartInstances[chartId]) {
+        delete state.chartInstances[chartId].overlays[name]
+      }
     },
 
     // Remove overlay by matching the entire overlay object
-    removeOverlayByMatch: (state, action: PayloadAction<{ name: string; overlay: Overlay }>) => {
-      console.log('🏪 Redux Reducer - Removing overlay by match:', action.payload)
-      const { name, overlay } = action.payload
-      const existingOverlay = state.overlays[name]
+    removeOverlayByMatch: (state, action: PayloadAction<{ chartId: string; name: string; overlay: Overlay }>) => {
+      const { chartId, name, overlay } = action.payload
+      console.log('🏪 Redux Reducer - overlay/removeOverlayByMatch:', { chartId, name, overlay })
+      
+      if (!state.chartInstances[chartId]) return
+      
+      const existingOverlay = state.chartInstances[chartId].overlays[name]
       
       // Only remove if the overlay matches exactly
       if (existingOverlay && 
@@ -38,50 +57,81 @@ export const overlaySlice = createSlice({
           existingOverlay.range === overlay.range &&
           existingOverlay.enabled === overlay.enabled &&
           existingOverlay.available === overlay.available) {
-        delete state.overlays[name]
-        console.log('🏪 Redux Reducer - Successfully removed matching overlay:', name)
+        delete state.chartInstances[chartId].overlays[name]
+        console.log('🏪 Redux Reducer - Successfully removed matching overlay:', { chartId, name })
       } else {
-        console.warn('🏪 Redux Reducer - Overlay mismatch, removal cancelled:', { name, expected: overlay, found: existingOverlay })
+        console.warn('🏪 Redux Reducer - Overlay mismatch, removal cancelled:', { chartId, name, expected: overlay, found: existingOverlay })
       }
     },
 
     // Remove overlay by criteria (type + range combination)
-    removeOverlayByCriteria: (state, action: PayloadAction<{ type: SeriesType; range: TimeRange }>) => {
-      console.log('🏪 Redux Reducer - Removing overlay by criteria:', action.payload)
-      const { type, range } = action.payload
+    removeOverlayByCriteria: (state, action: PayloadAction<{ chartId: string; type: SeriesType; range: TimeRange }>) => {
+      const { chartId, type, range } = action.payload
+      console.log('🏪 Redux Reducer - overlay/removeOverlayByCriteria:', { chartId, type, range })
+      
+      if (!state.chartInstances[chartId]) return
       
       // Find and remove overlays matching the criteria
-      Object.keys(state.overlays).forEach(name => {
-        const overlay = state.overlays[name]
+      Object.keys(state.chartInstances[chartId].overlays).forEach(name => {
+        const overlay = state.chartInstances[chartId].overlays[name]
         if (overlay.type === type && overlay.range === range) {
-          delete state.overlays[name]
-          console.log('🏪 Redux Reducer - Removed overlay matching criteria:', name, overlay)
+          delete state.chartInstances[chartId].overlays[name]
+          console.log('🏪 Redux Reducer - Removed overlay matching criteria:', { chartId, name, overlay })
         }
       })
     },
     
-    updateOverlayEnabled: (state, action: PayloadAction<{ name: string; enabled: boolean }>) => {
-      console.log('🏪 Redux Reducer - Updating overlay enabled status:', action.payload)
-      if (state.overlays[action.payload.name]) {
-        state.overlays[action.payload.name].enabled = action.payload.enabled
+    updateOverlayEnabled: (state, action: PayloadAction<{ chartId: string; name: string; enabled: boolean }>) => {
+      const { chartId, name, enabled } = action.payload
+      console.log('🏪 Redux Reducer - overlay/updateOverlayEnabled:', { chartId, name, enabled })
+      
+      if (state.chartInstances[chartId]?.overlays[name]) {
+        state.chartInstances[chartId].overlays[name].enabled = enabled
       }
     },
     
-    updateOverlayAvailable: (state, action: PayloadAction<{ name: string; available: boolean }>) => {
-      console.log('🏪 Redux Reducer - Updating overlay available status:', action.payload)
-      if (state.overlays[action.payload.name]) {
-        state.overlays[action.payload.name].available = action.payload.available
+    updateOverlayAvailable: (state, action: PayloadAction<{ chartId: string; name: string; available: boolean }>) => {
+      const { chartId, name, available } = action.payload
+      console.log('🏪 Redux Reducer - overlay/updateOverlayAvailable:', { chartId, name, available })
+      
+      if (state.chartInstances[chartId]?.overlays[name]) {
+        state.chartInstances[chartId].overlays[name].available = available
       }
     },
     
-    setOverlays: (state, action: PayloadAction<OverlayDictionary>) => {
-      console.log('🏪 Redux Reducer - Setting all overlays:', action.payload)
-      state.overlays = action.payload
+    setOverlays: (state, action: PayloadAction<{ chartId: string; overlays: OverlayDictionary }>) => {
+      const { chartId, overlays } = action.payload
+      console.log('🏪 Redux Reducer - overlay/setOverlays:', { chartId, overlays })
+      
+      // Initialize chart instance if it doesn't exist
+      if (!state.chartInstances[chartId]) {
+        state.chartInstances[chartId] = getDefaultInstanceState()
+      }
+      
+      state.chartInstances[chartId].overlays = overlays
     },
     
-    clearOverlays: (state) => {
-      console.log('🏪 Redux Reducer - Clearing all overlays')
-      state.overlays = {}
+    clearOverlays: (state, action: PayloadAction<string>) => {
+      const chartId = action.payload
+      console.log('🏪 Redux Reducer - overlay/clearOverlays:', chartId)
+      
+      if (state.chartInstances[chartId]) {
+        state.chartInstances[chartId].overlays = {}
+      }
+    },
+    
+    initializeChartInstance: (state, action: PayloadAction<string>) => {
+      const chartId = action.payload
+      if (!state.chartInstances[chartId]) {
+        console.log('🏪 Redux Reducer - overlay/initializeChartInstance:', chartId)
+        state.chartInstances[chartId] = getDefaultInstanceState()
+      }
+    },
+    
+    removeChartInstance: (state, action: PayloadAction<string>) => {
+      const chartId = action.payload
+      console.log('🏪 Redux Reducer - overlay/removeChartInstance:', chartId)
+      delete state.chartInstances[chartId]
     }
   }
 })
@@ -94,7 +144,9 @@ export const {
   updateOverlayEnabled, 
   updateOverlayAvailable, 
   setOverlays, 
-  clearOverlays 
+  clearOverlays,
+  initializeChartInstance,
+  removeChartInstance
 } = overlaySlice.actions
 
 export default overlaySlice.reducer
