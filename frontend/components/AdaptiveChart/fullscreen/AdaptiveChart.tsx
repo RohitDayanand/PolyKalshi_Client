@@ -26,7 +26,7 @@ import { useOverlayManager } from '../useOverlayManager'
 import { useChartViewState } from '../hooks/useChartViewState'
 import { useChartRangeState } from '../hooks/useChartRangeState'
 import { useChartFullscreenState } from '../hooks/useChartFullscreenState'
-import { ChartControls } from '../ChartControls'
+import { ChartControls } from './ChartControls'
 import { OverlayToggle } from './OverlayToggle'
 import { TIME_RANGES, SERIES_VIEWS, TimeRange, SeriesView } from '@/lib/chart-types'
 import { CHART_THEME } from '@/lib/chart-config'
@@ -38,7 +38,7 @@ interface AdaptiveChartProps {
   className?: string;
   staticData: { yes: any[], no: any[] };
   setStaticData: (data: { yes: any[], no: any[] }) => void;
-  chartId?: string; //represents which chart all of the toggles are working towards 
+  chartId: string; // Required - represents which chart all of the toggles are working towards 
 }
 
 export function AdaptiveChart({
@@ -50,10 +50,10 @@ export function AdaptiveChart({
   setStaticData,
   chartId
 }: AdaptiveChartProps) {
-  // Redux state
-  const { selectedView, setView } = useChartViewState()
-  const { selectedRange, setRange } = useChartRangeState()
-  const { isFullscreen, setFullscreen } = useChartFullscreenState()
+  // Redux state - now using chartId for isolated state
+  const { selectedView, setView } = useChartViewState(chartId)
+  const { selectedRange, setRange } = useChartRangeState(chartId)
+  const { isFullscreen, setFullscreen } = useChartFullscreenState(chartId)
 
   // Overlay toggle state
   const [showOverlayToggle, setShowOverlayToggle] = useState(false)
@@ -86,7 +86,8 @@ export function AdaptiveChart({
     getOverlayInstance, 
     activeOverlayCount 
   } = useOverlayManager({ 
-    chartInstanceRef 
+    chartInstanceRef,
+    chartId 
   })
 
   // Effect to capture original container dimensions when first rendered
@@ -409,7 +410,7 @@ export function AdaptiveChart({
       {/* Regular Controls - Only shown in embedded mode */}
       {!isFullscreen && showControls && (
         <div className="animate-in slide-in-from-top duration-300">
-          <ChartControls />
+          <ChartControls chartId={chartId} />
         </div>
       )}
 
@@ -469,6 +470,7 @@ export function AdaptiveChart({
         isVisible={isFullscreen && showOverlayToggle}
         onClose={() => setShowOverlayToggle(false)}
         chartInstance={chartInstanceRef.current}
+        chartId={chartId}
       />
     </div>
   )

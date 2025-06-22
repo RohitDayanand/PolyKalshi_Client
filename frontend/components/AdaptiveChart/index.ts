@@ -1,6 +1,6 @@
 // Main chart module exports - CLEANED UP VERSION
 export { BaseChart } from './BaseChart'
-export { ChartControls } from './ChartControls'
+export { ChartControls } from './fullscreen/ChartControls'
 export { AdaptiveChart } from './fullscreen/AdaptiveChart' // NEW: Elegant single-instance solution
 export { useChartInstance } from './useChartInstance'
 

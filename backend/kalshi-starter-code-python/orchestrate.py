@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 from cryptography.hazmat.primitives import serialization
 from find_kalshi_markets import get_markets, MIN_VOLUME, MARKETS_FILE
 from kalshi_client import KalshiWebSocketClient, Environment
+#from config import paths
 
 # Always load .env from the project root
 env_path = Path(__file__).resolve().parents[1] / '.env'
@@ -82,11 +83,12 @@ async def run_websocket_client():
     
     # Get environment and key ID
     env = Environment.PROD
+    #get API Key ID
     key_id = os.getenv('PROD_KEYID')
     
     # Get the directory where the script is located
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    keyfile = os.path.join(script_dir, 'kalshi_key_file.txt')
+    keyfile = 'kalshi_key_file.txt'
     
     try:
         # Load private key
