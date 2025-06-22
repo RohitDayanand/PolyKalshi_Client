@@ -285,7 +285,7 @@ class MarketsManager:
             config = KalshiClientConfig(
                 ticker=ticker,
                 channel=primary_channel,
-                environment=Environment.DEMO,  # Can be made configurable from subscription
+                environment=Environment.PROD,  # Can be made configurable from subscription
                 ping_interval=30,
                 log_level="INFO"
             )
