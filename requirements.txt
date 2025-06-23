@@ -23,3 +23,5 @@ psycopg[async]
 websockets==15.0.1
 websocket-client
 pyee==12.1.1
+fastapi==0.115.6
+uvicorn==0.34.0

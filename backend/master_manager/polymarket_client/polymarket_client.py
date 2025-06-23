@@ -13,7 +13,6 @@ Key Features:
 """
 
 import json
-import websocket
 import time
 import threading
 import logging
@@ -69,12 +68,12 @@ class PolymarketClient:
         self.is_connected = False
         self.should_reconnect = True
         self.last_pong = datetime.now()
-        self.on_message_callback: Optional[Callable[[Dict], None]] = None
+        self.on_message_callback: Optional[Callable[[str, Dict], None]] = None
         self.on_connection_callback: Optional[Callable[[bool], None]] = None
         self.on_error_callback: Optional[Callable[[Exception], None]] = None
         logger.debug(f"PolymarketClient initialized with slug={self.slug}, token_id={self.token_id}")
 
-    def set_message_callback(self, callback: Callable[[Dict], None]) -> None:
+    def set_message_callback(self, callback: Callable[[str, Dict], None]) -> None:
         self.on_message_callback = callback
 
     def set_connection_callback(self, callback: Callable[[bool], None]) -> None:
@@ -115,25 +114,40 @@ class PolymarketClient:
         try:
             async for message in self.websocket:
                 logger.debug(f"Received WebSocket message: {message}")
+                
+                # Handle simple PONG responses without JSON parsing
                 if message == "PONG":
                     self.last_pong = datetime.now()
                     logger.debug("Received PONG response")
                     continue
+                
+                # Handle PONG in JSON format
                 try:
                     data = json.loads(message)
-                    messages = data if isinstance(data, list) else [data]
-                    for msg in messages:
-                        if msg.get('type') == 'PONG':
+                    if isinstance(data, dict) and data.get('type') == 'PONG':
+                        self.last_pong = datetime.now()
+                        continue
+                    elif isinstance(data, list):
+                        # Check if any message in array is PONG
+                        has_pong = any(msg.get('type') == 'PONG' for msg in data if isinstance(msg, dict))
+                        if has_pong:
                             self.last_pong = datetime.now()
-                            continue
-                        if self.on_message_callback:
-                            self.on_message_callback(msg)
                 except json.JSONDecodeError:
-                    logger.error("Failed to parse message as JSON")
-                except Exception as e:
-                    logger.error(f"Error processing message: {e}")
-                    if self.on_error_callback:
-                        self.on_error_callback(e)
+                    # Not JSON, will be handled by queue processor
+                    pass
+                
+                # Send raw message to queue without full decoding
+                if self.on_message_callback:
+                    logger.debug("Forwarding raw message to queue")
+                    metadata = {
+                        "slug": self.slug,
+                        "token_id": self.token_id,
+                        "subscription_id": f"{self.slug}_market",
+                        "timestamp": datetime.now().isoformat()
+                    }
+                    # Pass raw message string, not decoded JSON
+                    await self.on_message_callback(message, metadata)
+                    
         except Exception as e:
             logger.error(f"WebSocket error: {e}")
             if self.on_error_callback:
@@ -141,6 +155,27 @@ class PolymarketClient:
             self.is_connected = False
 
     async def connect(self):
+        """
+        Connect to Polymarket WebSocket with full async approach.
+        Uses background task for long-running connection and returns quickly.
+        """
+        logger.debug("connect() called")
+        
+        # Start the connection as a background task since it's long-running
+        asyncio.create_task(self._connect_with_retry())
+        
+        # Give connection time to establish
+        await asyncio.sleep(2)
+        
+        if self.is_connected:
+            logger.info(f"Polymarket client started for market: {self.slug}")
+            return True
+        else:
+            logger.error(f"Failed to start Polymarket client for market: {self.slug}")
+            return False
+
+    async def _connect_with_retry(self):
+        """Main connection loop with retry logic and monitoring."""
         while self.should_reconnect:
             try:
                 logger.info(f"Connecting to WebSocket URL: {self.ws_url}")
@@ -151,8 +186,10 @@ class PolymarketClient:
                     if self.on_connection_callback:
                         self.on_connection_callback(True)
                     logger.info("WebSocket connection opened (async)")
+                    
                     # Immediately subscribe upon connection
                     await self.subscribe()
+                    
                     # Start ping and message handler concurrently
                     await asyncio.gather(
                         self.send_ping(),
@@ -165,8 +202,10 @@ class PolymarketClient:
                     self.on_connection_callback(False)
                 if self.on_error_callback:
                     self.on_error_callback(e)
-                logger.info(f"Reconnecting in {self.reconnect_interval} seconds...")
-                await asyncio.sleep(self.reconnect_interval)
+                
+                if self.should_reconnect:
+                    logger.info(f"Reconnecting in {self.reconnect_interval} seconds...")
+                    await asyncio.sleep(self.reconnect_interval)
 
     async def disconnect(self):
         logger.info("Shutting down Polymarket client...")

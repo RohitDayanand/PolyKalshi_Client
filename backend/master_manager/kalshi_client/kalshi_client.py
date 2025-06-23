@@ -1,7 +1,6 @@
 import json
 import asyncio
 import time
-import threading
 import logging
 import websockets
 import base64
@@ -66,13 +65,11 @@ class KalshiClient:
         self.should_reconnect = True
         self.last_message_time = datetime.now()
         self.message_id = 1
-        self._threads: List[threading.Thread] = []
-        self._loop: Optional[asyncio.AbstractEventLoop] = None
-        self.on_message_callback: Optional[Callable[[Dict], None]] = None
+        self.on_message_callback: Optional[Callable[[str, Dict], None]] = None
         self.on_connection_callback: Optional[Callable[[bool], None]] = None
         self.on_error_callback: Optional[Callable[[Exception], None]] = None
 
-    def set_message_callback(self, callback: Callable[[Dict], None]) -> None:
+    def set_message_callback(self, callback: Callable[[str, Dict], None]) -> None:
         self.on_message_callback = callback
 
     def set_connection_callback(self, callback: Callable[[bool], None]) -> None:
@@ -121,24 +118,36 @@ class KalshiClient:
             self.last_message_time = datetime.now()
             if LOG_ALL_MESSAGES:
                 logger.debug(f"[handle_websocket_message] Raw message: {message}")
+            
+            # Handle simple PONG responses without JSON parsing
             if message == "PONG":
                 logger.debug("[handle_websocket_message] Received PONG response")
                 return
-            data = json.loads(message)
-            if LOG_ALL_MESSAGES:
-                logger.debug(f"[handle_websocket_message] Decoded JSON: {data}")
-            if data.get('type') == 'ping':
-                pong_message = {"type": "pong"}
-                await self.websocket.send(json.dumps(pong_message))
-                logger.debug("[handle_websocket_message] Sent PONG in response to ping")
-                return
+            
+            # Handle ping/pong protocol messages that need immediate response
+            try:
+                data = json.loads(message)
+                if data.get('type') == 'ping':
+                    pong_message = {"type": "pong"}
+                    await self.websocket.send(json.dumps(pong_message))
+                    logger.debug("[handle_websocket_message] Sent PONG in response to ping")
+                    return
+            except json.JSONDecodeError:
+                # Not JSON, will be handled by queue processor
+                pass
+            
+            # Send raw message to queue without decoding
             if self.on_message_callback:
-                logger.debug("[handle_websocket_message] Calling on_message_callback")
-                self.on_message_callback(data)
-        except json.JSONDecodeError:
-            logger.error("[handle_websocket_message] Failed to parse message as JSON")
-            if self.on_error_callback:
-                self.on_error_callback(Exception("Invalid JSON message"))
+                logger.debug("[handle_websocket_message] Forwarding raw message to queue")
+                metadata = {
+                    "ticker": self.ticker,
+                    "channel": self.channel,
+                    "subscription_id": f"{self.ticker}_{self.channel}",
+                    "timestamp": self.last_message_time.isoformat()
+                }
+                # Pass raw message string, not decoded JSON
+                await self.on_message_callback(message, metadata)
+                
         except Exception as e:
             logger.error(f"[handle_websocket_message] Error processing message: {e}")
             if self.on_error_callback:
@@ -174,113 +183,179 @@ class KalshiClient:
             if self.on_error_callback:
                 self.on_error_callback(e)
 
-    async def _async_connect(self) -> bool:
-        max_retries = 3
-        retries = 0
-        while self.should_reconnect and retries < max_retries:
-            try:
-                ws_url = self._get_ws_url()
-                auth_headers = self._create_auth_headers("GET", "/trade-api/ws/v2")
-                logger.info(f"Connecting to Kalshi WebSocket: {ws_url}")
-                logger.debug(f"[_async_connect] Auth headers: {auth_headers}")
-                self.websocket = await websockets.connect(
-                    ws_url,
-                    additional_headers=auth_headers
-                )
-                self.is_connected = True
-                logger.info(f"Successfully connected to Kalshi for ticker: {self.ticker}")
-                if self.on_connection_callback:
-                    logger.debug("[_async_connect] Calling on_connection_callback(True)")
-                    self.on_connection_callback(True)
-                await self._subscribe_to_channel()
-                await self._websocket_handler()
-                return True
-            except websockets.ConnectionClosed as e:
-                logger.warning(f"Connection closed: {e.code} {e.reason}")
-                self.is_connected = False
-                retries += 1
-                if retries < max_retries and self.should_reconnect:
-                    logger.info(f"Reconnecting in {self.config.reconnect_interval} seconds... (attempt {retries+1} of {max_retries})")
-                    await asyncio.sleep(self.config.reconnect_interval)
-            except Exception as e:
-                logger.error(f"Error connecting to Kalshi: {e}")
-                self.is_connected = False
-                retries += 1
-                if retries < max_retries and self.should_reconnect:
-                    logger.info(f"Reconnecting in {self.config.reconnect_interval} seconds... (attempt {retries+1} of {max_retries})")
-                    await asyncio.sleep(self.config.reconnect_interval)
-                elif self.on_error_callback:
-                    self.on_error_callback(e)
-        if retries >= max_retries:
-            logger.error("Max reconnection attempts reached")
-            return False
-        return False
-
-    def _run_async_in_thread(self):
-        try:
-            self._loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(self._loop)
-            self._loop.run_until_complete(self._async_connect())
-        except Exception as e:
-            logger.error(f"Error in async thread: {e}")
-            if self.on_error_callback:
-                self.on_error_callback(e)
-        finally:
-            if self._loop and not self._loop.is_closed():
-                self._loop.close()
-
-    def _monitor_connection(self) -> None:
+    async def _monitor_connection(self) -> None:
+        """Monitor connection health in async manner."""
         while self.should_reconnect:
             if self.is_connected:
                 time_since_last = datetime.now() - self.last_message_time
                 if time_since_last > timedelta(seconds=self.config.ping_interval * 3):
                     logger.warning("No messages received recently, connection may be stale")
-            time.sleep(self.config.ping_interval)
+            await asyncio.sleep(self.config.ping_interval)
 
-    def connect(self) -> bool:
-        try:
-            if not self.config.key_id:
-                logger.error("Key ID is required for Kalshi connection")
-                return False
-            if not self.config.private_key:
-                logger.error("Private key is required for Kalshi connection")
-                return False
-            connect_thread = threading.Thread(target=self._run_async_in_thread)
-            connect_thread.daemon = True
-            connect_thread.start()
-            self._threads.append(connect_thread)
-            monitor_thread = threading.Thread(target=self._monitor_connection)
-            monitor_thread.daemon = True
-            monitor_thread.start()
-            self._threads.append(monitor_thread)
-            time.sleep(2)
-            logger.info(f"Kalshi client started for ticker: {self.ticker}")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to start Kalshi client: {e}")
-            if self.on_error_callback:
-                self.on_error_callback(e)
+    async def connect(self) -> bool:
+        """
+        Connect to Kalshi WebSocket with full async approach.
+        Uses reconnection loop and concurrent monitoring.
+        """
+        if not self.config.key_id:
+            logger.error("Key ID is required for Kalshi connection")
+            return False
+        if not self.config.private_key:
+            logger.error("Private key is required for Kalshi connection")
             return False
 
-    def disconnect(self) -> None:
+        # Start the connection as a background task since it's long-running
+        asyncio.create_task(self._connect_with_retry())
+        
+        # Give connection time to establish
+        await asyncio.sleep(2)
+        
+        if self.is_connected:
+            logger.info(f"Kalshi client started for ticker: {self.ticker}")
+            return True
+        else:
+            logger.error(f"Failed to start Kalshi client for ticker: {self.ticker}")
+            return False
+    
+    async def addTicker(self, newTicker: str, connection_sid: int, tracker_id: int):
+        """
+        Add a ticker to the current subscription. Checks connection state and calls _attempt_addTicker.
+        Args:
+            newTicker: The ticker to add
+            connection_sid: The sid of the channel (tracked by MarketsManager)
+            tracker_id: The id for this update message (provided by MarketsManager)
+        Raises:
+            RuntimeError if websocket is not connected
+        """
+        # Check whether the websocket is there and is_connected is true
+        if not self.websocket or not self.is_connected:
+            logger.error("WebSocket is not connected or not initialized. Cannot add ticker.")
+            raise RuntimeError("WebSocket is not connected or not initialized. Cannot add ticker.")
+        # Call the private function to attempt adding the ticker
+        await self._attempt_addTicker(newTicker, connection_sid, tracker_id)
+
+    async def _attempt_addTicker(self, newTicker: str, connection_sid: int, tracker_id: int):
+        '''
+        Attempt adding a ticker to some existing subscription asynchronously
+
+        Args:
+        connection_sid represents the original sid of the channel that was subscribed to. It is tracked by the [MarketsManager.py] class
+        tracker_id represents the id of this message provided by the [MarketsManager] class.
+
+        Returns:
+        New message
+        '''
+        updateMessage = {
+            "id": tracker_id,
+            "command": "update_subscription",
+            "params": {
+                "sids": [connection_sid],
+                "market_tickers": [newTicker]
+            },
+            "action": "addMarkets" #addMarkets in the @kalshi API
+        }
+        logger.debug(f"Sending update subscription message: {updateMessage}")
+        await self.websocket.send(json.dumps(updateMessage))
+
+    async def removeTicker(self, oldTicker: str, connection_sid: int, tracker_id: int):
+        """
+        Remove a ticker from the current subscription. Checks connection state and calls _attempt_removeTicker.
+        Args:
+            oldTicker: The ticker to remove
+            connection_sid: The sid of the channel (tracked by MarketsManager)
+            tracker_id: The id for this update message (provided by MarketsManager)
+        Raises:
+            RuntimeError if websocket is not connected
+        """
+        if not self.websocket or not self.is_connected:
+            logger.error("WebSocket is not connected or not initialized. Cannot remove ticker.")
+            raise RuntimeError("WebSocket is not connected or not initialized. Cannot remove ticker.")
+        await self._attempt_removeTicker(oldTicker, connection_sid, tracker_id)
+
+    async def _attempt_removeTicker(self, oldTicker: str, connection_sid: int, tracker_id: int):
+        '''
+        Attempt removing a ticker from an existing subscription asynchronously
+
+        Args:
+        connection_sid represents the original sid of the channel that was subscribed to. It is tracked by the [MarketsManager.py] class
+        tracker_id represents the id of this message provided by the [MarketsManager] class.
+
+        Returns:
+        New message
+        '''
+        updateMessage = {
+            "id": tracker_id,
+            "command": "update_subscription",
+            "params": {
+                "sids": [connection_sid],
+                "market_tickers": [oldTicker]
+            },
+            "action": "deleteMarkets" # delete markets in the @kalshiAPI
+        }
+        logger.debug(f"Sending update subscription message (remove): {updateMessage}")
+        await self.websocket.send(json.dumps(updateMessage))
+
+    async def _connect_with_retry(self) -> None:
+        """Main connection loop with retry logic and monitoring."""
+        while self.should_reconnect:
+            try:
+                ws_url = self._get_ws_url()
+                auth_headers = self._create_auth_headers("GET", "/trade-api/ws/v2")
+                logger.info(f"Connecting to Kalshi WebSocket: {ws_url}")
+                logger.debug(f"[_connect_with_retry] Auth headers: {auth_headers}")
+                
+                async with websockets.connect(ws_url, additional_headers=auth_headers) as websocket:
+                    self.websocket = websocket
+                    self.is_connected = True
+                    self.last_message_time = datetime.now()
+                    
+                    if self.on_connection_callback:
+                        logger.debug("[_connect_with_retry] Calling on_connection_callback(True)")
+                        self.on_connection_callback(True)
+                    
+                    logger.info(f"Successfully connected to Kalshi for ticker: {self.ticker}")
+                    
+                    # Subscribe immediately upon connection
+                    await self._subscribe_to_channel()
+                    
+                    # Run message handler and connection monitor concurrently
+                    await asyncio.gather(
+                        self._websocket_handler(),
+                        self._monitor_connection()
+                    )
+                    
+            except websockets.ConnectionClosed as e:
+                logger.warning(f"Connection closed: {e.code} {e.reason}")
+                self.is_connected = False
+                if self.on_connection_callback:
+                    self.on_connection_callback(False)
+            except Exception as e:
+                logger.error(f"Error connecting to Kalshi: {e}")
+                self.is_connected = False
+                if self.on_connection_callback:
+                    self.on_connection_callback(False)
+                if self.on_error_callback:
+                    self.on_error_callback(e)
+            
+            if self.should_reconnect:
+                logger.info(f"Reconnecting in {self.config.reconnect_interval} seconds...")
+                await asyncio.sleep(self.config.reconnect_interval)
+
+    async def disconnect(self) -> None:
+        """Disconnect from Kalshi WebSocket."""
         logger.info("Shutting down Kalshi client...")
         self.should_reconnect = False
         self.is_connected = False
+        
         if self.websocket:
             try:
-                if self._loop and not self._loop.is_closed():
-                    future = asyncio.run_coroutine_threadsafe(
-                        self.websocket.close(), 
-                        self._loop
-                    )
-                    future.result(timeout=5.0)
+                await self.websocket.close()
             except Exception as e:
                 logger.error(f"Error disconnecting WebSocket: {e}")
-        for thread in self._threads:
-            if thread.is_alive():
-                thread.join(timeout=2.0)
+        
         if self.on_connection_callback:
             self.on_connection_callback(False)
+        
         logger.info("Kalshi client shutdown complete")
 
     def is_running(self) -> bool:
@@ -294,7 +369,6 @@ class KalshiClient:
             "channel": self.channel,
             "last_message_time": self.last_message_time.isoformat() if self.last_message_time else None,
             "environment": self.config.environment.value,
-            "threads_active": len([t for t in self._threads if t.is_alive()])
         }
 
 # Convenience function for quick setup
