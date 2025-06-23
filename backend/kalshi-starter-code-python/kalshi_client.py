@@ -208,7 +208,7 @@ class KalshiWebSocketClient(KalshiBaseClient):
             "id": self.message_id,
             "cmd": "subscribe",
             "params": {
-                "channels": channel,
+                "channels": ["orderbook_delta"],
                 "market_tickers": market_ticker
             }
         }

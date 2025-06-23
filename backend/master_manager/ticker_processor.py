@@ -9,7 +9,7 @@ import time
 from typing import Dict, List, Any
 
 
-def KalshiJsonFormatter(ticker: str, channels: List[str] = None) -> Dict[str, Any]:
+def KalshiJsonFormatter(tickers: List[str], channels: List[str] = None, subscription_id: int = 1) -> Dict[str, Any]:
     """
     Convert a formatted ticker into a Kalshi WebSocket subscription message.
     
@@ -21,13 +21,26 @@ def KalshiJsonFormatter(ticker: str, channels: List[str] = None) -> Dict[str, An
         Dict containing the WebSocket subscription message
     """
     if channels is None:
-        channels = ["orderbook_delta", "trade"]
+        print("Channels was none")
+        channels = ["orderbook_delta"]
     
     return {
-        "id": int(time.time()),
+        "id": subscription_id,
         "cmd": "subscribe",
         "params": {
             "channels": channels,
-            "market_tickers": [ticker]
+            "market_tickers": tickers
         }
     }
+
+def PolyJsonFormatter(tokens: List[List[str]]): 
+    #flatten the token list and return it
+    
+    return {
+        "type": "market",
+        "tokens": [item for sublist in tokens for item in sublist]
+    }
+
+
+
+
