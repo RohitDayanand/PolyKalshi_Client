@@ -44,6 +44,8 @@ from kalshi_client.kalshi_client_config import KalshiClientConfig
 from kalshi_client.kalshi_environment import Environment
 from ticker_processor import KalshiJsonFormatter, PolyJsonFormatter
 from message_processor import MessageProcessor
+from kalshi_queue import KalshiQueue
+from polymarket_queue import PolymarketQueue
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -63,21 +65,21 @@ class MarketsManager:
         self.polymarket_clients: Dict[str, PolymarketClient] = {}
         self.kalshi_clients: Dict[str, KalshiClient] = {}
         
-        # Initialize processor (composition pattern)
-        self.processor = MessageProcessor(self)
+        # Initialize new async queue system (replaces legacy processor)
+        self.kalshi_queue = KalshiQueue(max_queue_size=1000)
+        self.polymarket_queue = PolymarketQueue(max_queue_size=1000)
         
-        # Threading for async message processing
-        self._message_queue = queue.Queue()
-        self._processor_thread: Optional[threading.Thread] = None
-        self._should_process = True
+        # Start queue processors
+        asyncio.create_task(self.kalshi_queue.start())
+        asyncio.create_task(self.polymarket_queue.start())
         
-        logger.info("MarketsManager initialized")
+        logger.info("MarketsManager initialized with async queues")
 
         self.KALSHI_CHANNEL = "orderbook_delta"
         #no polymarket channel, markets channel by default
 
     
-    def connect(self, subscription_id: str, platform: str = "polymarket") -> bool:
+    async def connect(self, subscription_id: str, platform: str = "polymarket") -> bool:
         """
         Connect to a specific market using subscription ID and platform.
         
@@ -90,9 +92,9 @@ class MarketsManager:
         """
         try:
             if platform.lower() == "polymarket":
-                return self._connect_polymarket(subscription_id)
+                return await self._connect_polymarket(subscription_id)
             elif platform.lower() == "kalshi":
-                return self._connect_kalshi(subscription_id)
+                return await self._connect_kalshi(subscription_id)
             else:
                 logger.error(f"Unsupported platform: {platform}")
                 return False
@@ -100,8 +102,7 @@ class MarketsManager:
         except Exception as e:
             logger.error(f"Failed to connect {platform}:{subscription_id} - {e}")
             return False
-    
-    def _connect_polymarket(self, subscription_id: str) -> bool:
+    async def _connect_polymarket(self, subscription_id: str) -> bool:
         """Connect to Polymarket using subscription configuration."""
         # Check if already connected
         if subscription_id in self.polymarket_clients:
@@ -112,7 +113,7 @@ class MarketsManager:
             else:
                 # Reconnect existing client
                 logger.info(f"Reconnecting Polymarket {subscription_id}")
-                return client.connect()
+                return await client.connect()
 
         # For Polymarket, subscription_id should be token IDs (comma-separated or list)
         # Parse the subscription_id to get token IDs
@@ -124,14 +125,12 @@ class MarketsManager:
         else:
             token_ids = subscription_id
 
-        # Generate subscription message using PolyJsonFormatter
-        subscription_message = PolyJsonFormatter([token_ids])
-        
-        # Create client config with a default slug (can be customized later)
+        # Create client config with token_ids
         config = PolymarketClientConfig(
             slug="default-polymarket-subscription",
             ping_interval=30,
-            log_level="INFO"
+            log_level="INFO",
+            token_id=token_ids
         )
         
         client = PolymarketClient(config)
@@ -141,7 +140,7 @@ class MarketsManager:
         last_reset_time = time.time()
         rate_limit = 10  # Default rate limit
         
-        def message_forwarder(message):
+        async def message_forwarder(raw_message, metadata):
             nonlocal message_count, last_reset_time
             
             # Simple rate limiting check
@@ -154,15 +153,18 @@ class MarketsManager:
                 logger.warning(f"Rate limit exceeded for Polymarket {subscription_id}")
                 return
             
-            # Efficient in-place message tagging (O(1) operation)
-            message["_platform"] = "polymarket"
-            message["_subscription_id"] = subscription_id
-            message["_timestamp"] = datetime.now().isoformat()
-            message["_rate_limit"] = rate_limit
-            message["_channels"] = ["price", "orderbook"]
+            # Create enhanced metadata for queue processing
+            enhanced_metadata = {
+                **metadata,
+                "platform": "polymarket",
+                "subscription_id": subscription_id,
+                "timestamp": datetime.now().isoformat(),
+                "rate_limit": rate_limit,
+                "channels": ["price", "orderbook"]
+            }
             
-            # Forward to processor queue
-            self._message_queue.put(message)
+            # Forward raw message to Polymarket queue
+            await self.polymarket_queue.put_message(raw_message, enhanced_metadata)
             message_count += 1
         
         def connection_handler(connected):
@@ -176,27 +178,26 @@ class MarketsManager:
         client.set_connection_callback(connection_handler)
         client.set_error_callback(error_handler)
         
-        # Connect to websocket first
-        if client.connect():
-            # After connection, send subscription message
-            if hasattr(client, 'ws') and client.ws and client.is_connected:
-                try:
-                    client.ws.send(json.dumps(subscription_message))
-                    logger.info(f"Sent Polymarket subscription for tokens: {token_ids}")
-                except Exception as e:
-                    logger.error(f"Failed to send Polymarket subscription: {e}")
+        # Connect to websocket (now properly awaited)
+        try:
+            # Use the updated connect method that returns properly
+            connection_result = await client.connect()
             
-            self.polymarket_clients[subscription_id] = client
-            logger.info(f"Successfully connected Polymarket {subscription_id}")
-            
-            # Start processor if not running
-            self._ensure_processor_running()
-            return True
-        else:
-            logger.error(f"Failed to connect Polymarket {subscription_id}")
+            if connection_result and client.is_connected:
+                self.polymarket_clients[subscription_id] = client
+                logger.info(f"Successfully connected Polymarket {subscription_id}")
+                
+                # Queue processors started in __init__
+                return True
+            else:
+                logger.error(f"Failed to connect Polymarket {subscription_id}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error connecting Polymarket {subscription_id}: {e}")
             return False
     
-    def _connect_kalshi(self, subscription_id: str) -> bool:
+    async def _connect_kalshi(self, subscription_id: str) -> bool:
         """Connect to Kalshi using subscription configuration."""
         # Check if already connected
         if subscription_id in self.kalshi_clients:
@@ -207,13 +208,10 @@ class MarketsManager:
             else:
                 # Reconnect existing client
                 logger.info(f"Reconnecting Kalshi {subscription_id}")
-                return client.connect()
+                return await client.connect()
 
         # For Kalshi, subscription_id should be the ticker (e.g., "KXPRESPOLAND-NT")
         ticker = subscription_id
-        
-        # Generate subscription message using KalshiJsonFormatter
-        subscription_message = KalshiJsonFormatter([ticker], self.KALSHI_CHANNEL)
         
         try:
             # @TODO pass credentials for auth instead of using the defaults 
@@ -232,7 +230,7 @@ class MarketsManager:
             last_reset_time = time.time()
             rate_limit = 15  # Default rate limit
             
-            def message_forwarder(message):
+            async def message_forwarder(raw_message, metadata):
                 nonlocal message_count, last_reset_time
                 
                 # Simple rate limiting check
@@ -245,15 +243,18 @@ class MarketsManager:
                     logger.warning(f"Rate limit exceeded for Kalshi {subscription_id}")
                     return
                 
-                # Efficient in-place message tagging (O(1) operation)
-                message["_platform"] = "kalshi"
-                message["_subscription_id"] = subscription_id
-                message["_timestamp"] = datetime.now().isoformat()
-                message["_rate_limit"] = rate_limit
-                message["_channels"] = self.KALSHI_CHANNEL
+                # Create enhanced metadata for queue processing
+                enhanced_metadata = {
+                    **metadata,
+                    "platform": "kalshi",
+                    "subscription_id": subscription_id,
+                    "timestamp": datetime.now().isoformat(),
+                    "rate_limit": rate_limit,
+                    "channels": self.KALSHI_CHANNEL
+                }
                 
-                # Forward to processor queue
-                self._message_queue.put(message)
+                # Forward raw message to Kalshi queue
+                await self.kalshi_queue.put_message(raw_message, enhanced_metadata)
                 message_count += 1
             
             def connection_handler(connected):
@@ -267,37 +268,41 @@ class MarketsManager:
             client.set_connection_callback(connection_handler)
             client.set_error_callback(error_handler)
             
-            # Connect to websocket
-            if client.connect():
-                # Note: Kalshi client handles subscription internally via _subscribe_to_channel
-                # The subscription message is automatically sent when connection is established
+            # Connect to websocket (now properly awaited)
+            try:
+                # Use the updated connect method that returns properly
+                connection_result = await client.connect()
                 
-                self.kalshi_clients[subscription_id] = client
-                logger.info(f"Successfully connected Kalshi {subscription_id}")
-                
-                # Start processor if not running
-                self._ensure_processor_running()
-                return True
-            else:
-                logger.error(f"Failed to connect Kalshi {subscription_id}")
+                if connection_result and client.is_connected:
+                    self.kalshi_clients[subscription_id] = client
+                    logger.info(f"Successfully connected Kalshi {subscription_id}")
+                    
+                    # Queue processors started in __init__
+                    return True
+                else:
+                    logger.error(f"Failed to connect Kalshi {subscription_id}")
+                    return False
+                    
+            except Exception as e:
+                logger.error(f"Error connecting Kalshi {subscription_id}: {e}")
                 return False
                 
         except Exception as e:
             logger.error(f"Error setting up Kalshi client {subscription_id}: {e}")
             return False
     
-    def disconnect(self, subscription_id: str, platform: str = "polymarket") -> bool:
+    async def disconnect(self, subscription_id: str, platform: str = "polymarket") -> bool:
         """Disconnect from a specific market."""
         try:
             if platform.lower() == "polymarket":
                 if subscription_id in self.polymarket_clients:
-                    self.polymarket_clients[subscription_id].disconnect()
+                    await self.polymarket_clients[subscription_id].disconnect()
                     del self.polymarket_clients[subscription_id]
                     logger.info(f"Disconnected Polymarket {subscription_id}")
                     return True
             elif platform.lower() == "kalshi":
                 if subscription_id in self.kalshi_clients:
-                    self.kalshi_clients[subscription_id].disconnect()
+                    await self.kalshi_clients[subscription_id].disconnect()  # Now async
                     del self.kalshi_clients[subscription_id]
                     logger.info(f"Disconnected Kalshi {subscription_id}")
                     return True
@@ -309,27 +314,26 @@ class MarketsManager:
             logger.error(f"Error disconnecting {platform}:{subscription_id} - {e}")
             return False
     
-    def disconnect_all(self) -> None:
+    async def disconnect_all(self) -> None:
         """Disconnect all clients and stop processing."""
         logger.info("Disconnecting all clients...")
         
-        # Stop processor
-        self._should_process = False
-        if self._processor_thread and self._processor_thread.is_alive():
-            self._processor_thread.join(timeout=5.0)
+        # Stop queue processors
+        await self.kalshi_queue.stop()
+        await self.polymarket_queue.stop()
         
-        # Disconnect all Polymarket clients
+        # Disconnect all Polymarket clients (async)
         for subscription_id, client in self.polymarket_clients.items():
             try:
-                client.disconnect()
+                await client.disconnect()
                 logger.info(f"Disconnected Polymarket {subscription_id}")
             except Exception as e:
                 logger.error(f"Error disconnecting Polymarket {subscription_id}: {e}")
         
-        # Disconnect all Kalshi clients
+        # Disconnect all Kalshi clients (now async)
         for subscription_id, client in self.kalshi_clients.items():
             try:
-                client.disconnect()
+                await client.disconnect()
                 logger.info(f"Disconnected Kalshi {subscription_id}")
             except Exception as e:
                 logger.error(f"Error disconnecting Kalshi {subscription_id}: {e}")
@@ -338,30 +342,6 @@ class MarketsManager:
         self.kalshi_clients.clear()
         logger.info("All clients disconnected")
     
-    def _ensure_processor_running(self) -> None:
-        """Ensure the message processor thread is running."""
-        if not self._processor_thread or not self._processor_thread.is_alive():
-            self._should_process = True
-            self._processor_thread = threading.Thread(
-                target=self._process_messages, 
-                daemon=True
-            )
-            self._processor_thread.start()
-            logger.info("Message processor thread started")
-    
-    def _process_messages(self) -> None:
-        """Process messages from the queue in a separate thread."""
-        while self._should_process:
-            try:
-                # Get message with timeout to allow thread shutdown
-                message = self._message_queue.get(timeout=1.0)
-                self.processor.process_message(message)
-                self._message_queue.task_done()
-                
-            except queue.Empty:
-                continue
-            except Exception as e:
-                logger.error(f"Error processing message: {e}")
     
     def get_status(self) -> Dict[str, Any]:
         """Get status of all connections and the manager."""
@@ -377,8 +357,8 @@ class MarketsManager:
             "polymarket_connections": len(self.polymarket_clients),
             "kalshi_connections": len(self.kalshi_clients),
             "total_connections": len(self.polymarket_clients) + len(self.kalshi_clients),
-            "processor_running": self._processor_thread and self._processor_thread.is_alive(),
-            "queue_size": self._message_queue.qsize(),
+            "kalshi_queue_stats": self.kalshi_queue.get_stats(),
+            "polymarket_queue_stats": self.polymarket_queue.get_stats(),
             "polymarket_details": poly_status,
             "kalshi_details": kalshi_status
         }

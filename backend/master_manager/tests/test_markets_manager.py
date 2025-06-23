@@ -6,6 +6,7 @@ with dummy arguments. Replace the constants with real market IDs to test actual 
 """
 
 import logging
+import asyncio
 from MarketsManager import MarketsManager
 
 # Constants for testing (replace with real market IDs as needed)
@@ -18,7 +19,7 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 
-def test_markets_manager():
+async def test_markets_manager():
     """Test the MarketsManager with dummy arguments."""
     try:
         # Instantiate the MarketsManager
@@ -26,12 +27,12 @@ def test_markets_manager():
 
         # Test connecting to Polymarket
         print("\n🔗 Testing Polymarket connection")
-        success_poly = manager.connect(DUMMY_POLYMARKET_ID, platform="polymarket")
+        success_poly = await manager.connect(DUMMY_POLYMARKET_ID, platform="polymarket")
         print(f"Polymarket connection success: {success_poly}")
 
         # Test connecting to Kalshi
         print("\n🔗 Testing Kalshi connection")
-        success_kalshi = manager.connect(DUMMY_KALSHI_TICKER, platform="kalshi")
+        success_kalshi = await manager.connect(DUMMY_KALSHI_TICKER, platform="kalshi")
         print(f"Kalshi connection success: {success_kalshi}")
 
         # Get and print the status of the manager
@@ -41,7 +42,7 @@ def test_markets_manager():
 
         # Disconnect all connections
         print("\n🔌 Disconnecting all connections")
-        manager.disconnect_all()
+        await manager.disconnect_all()
         print("All connections disconnected successfully.")
 
     except Exception as e:
@@ -50,4 +51,4 @@ def test_markets_manager():
         traceback.print_exc()
 
 if __name__ == "__main__":
-    test_markets_manager()
+    asyncio.run(test_markets_manager())
