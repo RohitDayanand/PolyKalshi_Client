@@ -7,6 +7,9 @@ export interface Market {
   price?: number
   platform?: "polymarket" | "kalshi"
   lastUpdated?: string
+  // For backend tracking only (not for display):
+  tokenIds?: string[] // Polymarket: clobTokenIds
+  kalshiTicker?: string // Kalshi: e.g. "KXPRESPOLAND-NT"
 }
 
 export interface SearchResults {

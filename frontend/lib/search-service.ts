@@ -298,6 +298,7 @@ export class MarketSearchService {
    * Transform cached market to Market interface
    */
   private transformCachedMarketToMarket(cachedMarket: CachedMarket): Market {
+    // Add backend tracking fields for both platforms
     return {
       id: cachedMarket.id,
       title: cachedMarket.title,
@@ -305,7 +306,11 @@ export class MarketSearchService {
       volume: cachedMarket.volume,
       liquidity: cachedMarket.liquidity,
       price: cachedMarket.outcomes?.[0]?.price,
-      platform: cachedMarket.platform
+      platform: cachedMarket.platform,
+      lastUpdated: cachedMarket.lastUpdated,
+      // Backend tracking fields:
+      tokenIds: cachedMarket.platform === 'polymarket' ? cachedMarket.clobTokenIds : undefined,
+      kalshiTicker: cachedMarket.platform === 'kalshi' ? cachedMarket.id : undefined
     }
   }
 

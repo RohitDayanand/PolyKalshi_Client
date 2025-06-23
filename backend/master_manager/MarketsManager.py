@@ -8,7 +8,7 @@ Markets Manager - Central coordinator for    def __init__(self, config_path: Opt
         self.subscriptions = self._load_subscriptions(config_path)
         
         # Initialize processor (composition pattern)
-        self.processor = self.MessageProcessor(self)
+        self.processor = MessageProcessor(self)
         
         # Threading for async message processing
         self._message_queue = queue.Queue()
@@ -39,18 +39,17 @@ from datetime import datetime
 from pyee.asyncio import AsyncIOEventEmitter
 
 from polymarket_client import PolymarketClient, PolymarketClientConfig
-from kalshi_client_wrapper import KalshiClient, KalshiClientConfig, Environment
+from kalshi_client.kalshi_client import KalshiClient
+from kalshi_client.kalshi_client_config import KalshiClientConfig
+from kalshi_client.kalshi_environment import Environment
+from ticker_processor import KalshiJsonFormatter, PolyJsonFormatter
+from message_processor import MessageProcessor
 
 # Configure logging
 logger = logging.getLogger(__name__)
 
 
 # Configuration classes
-class KalshiClientConfig:
-    """Configuration class for Kalshi client (replaced by imported version)."""
-    pass  # Now using the imported KalshiClientConfig
-
-
 class MarketsManager:
     """
     Central manager for all market data connections and processing.
@@ -62,13 +61,10 @@ class MarketsManager:
     def __init__(self, config_path: Optional[str] = None):
         # Client storage
         self.polymarket_clients: Dict[str, PolymarketClient] = {}
-        self.kalshi_clients: Dict[str, KalshiClient] = {}  # Now implemented
-        
-        # Load subscription configuration
-        self.subscriptions = self._load_subscriptions(config_path)
+        self.kalshi_clients: Dict[str, KalshiClient] = {}
         
         # Initialize processor (composition pattern)
-        self.processor = self.MessageProcessor(self)
+        self.processor = MessageProcessor(self)
         
         # Threading for async message processing
         self._message_queue = queue.Queue()
@@ -76,64 +72,10 @@ class MarketsManager:
         self._should_process = True
         
         logger.info("MarketsManager initialized")
-    
-    def _load_subscriptions(self, config_path: Optional[str] = None) -> Dict:
-        """Load subscription configuration from JSON file or use dummy data."""
-        if config_path:
-            try:
-                with open(config_path, 'r') as f:
-                    return json.load(f)
-            except FileNotFoundError:
-                logger.warning(f"Config file {config_path} not found, using dummy data")
-        
-        # Enhanced subscription data structure - will be replaced with React state later
-        dummy_subscriptions = {
-            "polymarket": {
-                "election_2024": {
-                    "slug": "poland-presidential-election",
-                    "status": "active",
-                    "priority": "high",
-                    "subscription_config": {
-                        "asset_types": ["token"],
-                        "channels": ["price", "orderbook"],
-                        "rate_limit": 10  # messages per second
-                    }
-                },
-                "sports_event": {
-                    "slug": "sports-betting-market",
-                    "status": "pending",
-                    "priority": "medium",
-                    "subscription_config": {
-                        "asset_types": ["token"],
-                        "channels": ["price"],
-                        "rate_limit": 5
-                    }
-                }
-            },
-            "kalshi": {
-                "pres_election": {
-                    "ticker": "PRESWIN24",
-                    "status": "active", 
-                    "priority": "high",
-                    "subscription_config": {
-                        "channels": ["orderbook_delta", "trade"],
-                        "rate_limit": 15
-                    }
-                },
-                "weather_bet": {
-                    "ticker": "RAIN-NYC",
-                    "status": "pending",
-                    "priority": "low",
-                    "subscription_config": {
-                        "channels": ["orderbook_delta"],
-                        "rate_limit": 3
-                    }
-                }
-            }
-        }
-        
-        logger.info(f"Loaded {len(dummy_subscriptions)} platform subscriptions")
-        return dummy_subscriptions
+
+        self.KALSHI_CHANNEL = "orderbook_delta"
+        #no polymarket channel, markets channel by default
+
     
     def connect(self, subscription_id: str, platform: str = "polymarket") -> bool:
         """
@@ -161,15 +103,6 @@ class MarketsManager:
     
     def _connect_polymarket(self, subscription_id: str) -> bool:
         """Connect to Polymarket using subscription configuration."""
-        poly_subscriptions = self.subscriptions.get("polymarket", {})
-        
-        if subscription_id not in poly_subscriptions:
-            logger.error(f"Polymarket subscription {subscription_id} not found")
-            return False
-        
-        subscription = poly_subscriptions[subscription_id]
-        slug = subscription["slug"]
-        
         # Check if already connected
         if subscription_id in self.polymarket_clients:
             client = self.polymarket_clients[subscription_id]
@@ -180,27 +113,33 @@ class MarketsManager:
                 # Reconnect existing client
                 logger.info(f"Reconnecting Polymarket {subscription_id}")
                 return client.connect()
+
+        # For Polymarket, subscription_id should be token IDs (comma-separated or list)
+        # Parse the subscription_id to get token IDs
+        if isinstance(subscription_id, str):
+            if ',' in subscription_id:
+                token_ids = subscription_id.split(',')
+            else:
+                token_ids = [subscription_id]
+        else:
+            token_ids = subscription_id
+
+        # Generate subscription message using PolyJsonFormatter
+        subscription_message = PolyJsonFormatter([token_ids])
         
-        # Create new client connection
-        subscription = poly_subscriptions[subscription_id]
-        slug = subscription["slug"]
-        config_data = subscription.get("subscription_config", {})
-        
-        # Extract configuration from JSON subscription data
-        rate_limit = config_data.get("rate_limit", 10)  # Default rate limit
-        channels = config_data.get("channels", ["price", "orderbook"])
-        
+        # Create client config with a default slug (can be customized later)
         config = PolymarketClientConfig(
-            slug=slug,
+            slug="default-polymarket-subscription",
             ping_interval=30,
             log_level="INFO"
         )
         
         client = PolymarketClient(config)
         
-        # Set up message forwarding with efficient platform tagging and rate limiting
+        # Set up message forwarding with platform tagging
         message_count = 0
         last_reset_time = time.time()
+        rate_limit = 10  # Default rate limit
         
         def message_forwarder(message):
             nonlocal message_count, last_reset_time
@@ -220,7 +159,7 @@ class MarketsManager:
             message["_subscription_id"] = subscription_id
             message["_timestamp"] = datetime.now().isoformat()
             message["_rate_limit"] = rate_limit
-            message["_channels"] = channels
+            message["_channels"] = ["price", "orderbook"]
             
             # Forward to processor queue
             self._message_queue.put(message)
@@ -237,8 +176,16 @@ class MarketsManager:
         client.set_connection_callback(connection_handler)
         client.set_error_callback(error_handler)
         
-        # Connect and store
+        # Connect to websocket first
         if client.connect():
+            # After connection, send subscription message
+            if hasattr(client, 'ws') and client.ws and client.is_connected:
+                try:
+                    client.ws.send(json.dumps(subscription_message))
+                    logger.info(f"Sent Polymarket subscription for tokens: {token_ids}")
+                except Exception as e:
+                    logger.error(f"Failed to send Polymarket subscription: {e}")
+            
             self.polymarket_clients[subscription_id] = client
             logger.info(f"Successfully connected Polymarket {subscription_id}")
             
@@ -251,15 +198,6 @@ class MarketsManager:
     
     def _connect_kalshi(self, subscription_id: str) -> bool:
         """Connect to Kalshi using subscription configuration."""
-        kalshi_subscriptions = self.subscriptions.get("kalshi", {})
-        
-        if subscription_id not in kalshi_subscriptions:
-            logger.error(f"Kalshi subscription {subscription_id} not found")
-            return False
-        
-        subscription = kalshi_subscriptions[subscription_id]
-        ticker = subscription["ticker"]
-        
         # Check if already connected
         if subscription_id in self.kalshi_clients:
             client = self.kalshi_clients[subscription_id]
@@ -270,31 +208,29 @@ class MarketsManager:
                 # Reconnect existing client
                 logger.info(f"Reconnecting Kalshi {subscription_id}")
                 return client.connect()
+
+        # For Kalshi, subscription_id should be the ticker (e.g., "KXPRESPOLAND-NT")
+        ticker = subscription_id
         
-        # Create new client connection
-        subscription = kalshi_subscriptions[subscription_id]
-        ticker = subscription["ticker"]
-        config_data = subscription.get("subscription_config", {})
-        
-        # Extract configuration from JSON subscription data
-        rate_limit = config_data.get("rate_limit", 15)  # Default rate limit
-        channels = config_data.get("channels", ["orderbook_delta"])
-        primary_channel = channels[0] if channels else "orderbook_delta"
+        # Generate subscription message using KalshiJsonFormatter
+        subscription_message = KalshiJsonFormatter([ticker], self.KALSHI_CHANNEL)
         
         try:
+            # @TODO pass credentials for auth instead of using the defaults 
             config = KalshiClientConfig(
                 ticker=ticker,
-                channel=primary_channel,
-                environment=Environment.PROD,  # Can be made configurable from subscription
+                channel=self.KALSHI_CHANNEL,  # Primary channel
+                environment=Environment.PROD,
                 ping_interval=30,
                 log_level="INFO"
             )
             
             client = KalshiClient(config)
             
-            # Set up message forwarding with efficient platform tagging and rate limiting
+            # Set up message forwarding with platform tagging
             message_count = 0
             last_reset_time = time.time()
+            rate_limit = 15  # Default rate limit
             
             def message_forwarder(message):
                 nonlocal message_count, last_reset_time
@@ -314,7 +250,7 @@ class MarketsManager:
                 message["_subscription_id"] = subscription_id
                 message["_timestamp"] = datetime.now().isoformat()
                 message["_rate_limit"] = rate_limit
-                message["_channels"] = channels
+                message["_channels"] = self.KALSHI_CHANNEL
                 
                 # Forward to processor queue
                 self._message_queue.put(message)
@@ -331,8 +267,11 @@ class MarketsManager:
             client.set_connection_callback(connection_handler)
             client.set_error_callback(error_handler)
             
-            # Connect and store
+            # Connect to websocket
             if client.connect():
+                # Note: Kalshi client handles subscription internally via _subscribe_to_channel
+                # The subscription message is automatically sent when connection is established
+                
                 self.kalshi_clients[subscription_id] = client
                 logger.info(f"Successfully connected Kalshi {subscription_id}")
                 
@@ -437,203 +376,13 @@ class MarketsManager:
         return {
             "polymarket_connections": len(self.polymarket_clients),
             "kalshi_connections": len(self.kalshi_clients),
-            "total_subscriptions": len(self.subscriptions.get("polymarket", {})) + len(self.subscriptions.get("kalshi", {})),
+            "total_connections": len(self.polymarket_clients) + len(self.kalshi_clients),
             "processor_running": self._processor_thread and self._processor_thread.is_alive(),
             "queue_size": self._message_queue.qsize(),
             "polymarket_details": poly_status,
             "kalshi_details": kalshi_status
         }
     
-    class MessageProcessor:
-        """
-        Message processor subclass using composition pattern.
-        
-        Processes tagged messages from different platforms and emits events
-        through pyee event emitter with rate limiting and testing capabilities.
-        """
-        
-        def __init__(self, manager: 'MarketsManager'):
-            self.manager = manager
-            self.event_emitter = AsyncIOEventEmitter()
-            
-            # Rate limiting tracking for testing
-            self.rate_limit_stats = {
-                "total_messages": 0,
-                "rate_limited_messages": 0,
-                "platform_stats": {},
-                "last_reset": datetime.now()
-            }
-            
-            # Message type handlers for different event types
-            self.message_handlers = {
-                "book": self._handle_orderbook,
-                "orderbook_snapshot": self._handle_orderbook,
-                "orderbook_delta": self._handle_orderbook,
-                "trade": self._handle_trade,
-                "ticker": self._handle_ticker,
-                "ticker_v2": self._handle_ticker,
-                "price": self._handle_price,
-                "fill": self._handle_fill
-            }
-            
-            logger.info("MessageProcessor initialized with pyee event emitter")
-        
-        def process_message(self, message: Dict[str, Any]) -> None:
-            """
-            Process a tagged message from any platform with rate limiting.
-            
-            Args:
-                message: Message dict with _platform, _subscription_id, _timestamp tags
-            """
-            try:
-                platform = message.get("_platform")
-                subscription_id = message.get("_subscription_id")
-                event_type = message.get("event_type", message.get("type", "unknown"))
-                rate_limit = message.get("_rate_limit", 10)
-                
-                # Update stats
-                self.rate_limit_stats["total_messages"] += 1
-                
-                # Track per-platform stats
-                platform_key = f"{platform}:{subscription_id}"
-                if platform_key not in self.rate_limit_stats["platform_stats"]:
-                    self.rate_limit_stats["platform_stats"][platform_key] = {
-                        "messages": 0,
-                        "rate_limited": 0,
-                        "last_message": None
-                    }
-                
-                platform_stats = self.rate_limit_stats["platform_stats"][platform_key]
-                platform_stats["messages"] += 1
-                platform_stats["last_message"] = datetime.now().isoformat()
-                
-                logger.debug(f"Processing {platform}:{subscription_id} message type: {event_type}")
-                
-                # Route to appropriate handler based on message type
-                if event_type in self.message_handlers:
-                    self.message_handlers[event_type](message)
-                else:
-                    # Default handler - emit raw message
-                    self._emit_raw_message(message)
-                
-                # Emit to pyee event emitter for testing
-                self._emit_to_pyee(message)
-                
-            except Exception as e:
-                logger.error(f"Error processing message: {e}")
-                logger.debug(f"Failed message: {message}")
-        
-        def _handle_orderbook(self, message: Dict[str, Any]) -> None:
-            """Handle orderbook-related messages."""
-            platform = message.get("_platform")
-            subscription_id = message.get("_subscription_id")
-            
-            logger.info(f"📊 ORDERBOOK: {platform}:{subscription_id}")
-            self._emit_to_channel("orderbook", message)
-        
-        def _handle_trade(self, message: Dict[str, Any]) -> None:
-            """Handle trade messages."""
-            platform = message.get("_platform")
-            subscription_id = message.get("_subscription_id")
-            
-            logger.info(f"💰 TRADE: {platform}:{subscription_id}")
-            self._emit_to_channel("trade", message)
-        
-        def _handle_ticker(self, message: Dict[str, Any]) -> None:
-            """Handle ticker/price messages."""
-            platform = message.get("_platform")
-            subscription_id = message.get("_subscription_id")
-            
-            logger.info(f"📈 TICKER: {platform}:{subscription_id}")
-            self._emit_to_channel("ticker", message)
-        
-        def _handle_price(self, message: Dict[str, Any]) -> None:
-            """Handle price update messages."""
-            platform = message.get("_platform")
-            subscription_id = message.get("_subscription_id")
-            
-            logger.info(f"💲 PRICE: {platform}:{subscription_id}")
-            self._emit_to_channel("price", message)
-        
-        def _handle_fill(self, message: Dict[str, Any]) -> None:
-            """Handle fill messages."""
-            platform = message.get("_platform")
-            subscription_id = message.get("_subscription_id")
-            
-            logger.info(f"✅ FILL: {platform}:{subscription_id}")
-            self._emit_to_channel("fill", message)
-        
-        def _emit_raw_message(self, message: Dict[str, Any]) -> None:
-            """Emit raw message for unknown types."""
-            platform = message.get("_platform", "unknown")
-            subscription_id = message.get("_subscription_id", "unknown")
-            event_type = message.get("event_type", message.get("type", "raw"))
-            
-            logger.info(f"🔗 RAW: {platform}:{subscription_id} - {event_type}")
-            self._emit_to_channel("raw", message)
-        
-        def _emit_to_channel(self, event_type: str, message: Dict[str, Any]) -> None:
-            """Emit message to a specific channel."""
-            platform = message.get("_platform", "unknown")
-            subscription_id = message.get("_subscription_id", "unknown")
-            
-            # Create channel name
-            channel = f"{platform}.{subscription_id}.{event_type}"
-            
-            logger.debug(f"Emitting to channel '{channel}'")
-            
-            # For now, just log the emission - later we'll connect to WebSocket broadcasters
-            # When we add WebSocket broadcasting, this is where we'd emit to connected clients
-        
-        def _emit_to_pyee(self, message: Dict[str, Any]) -> None:
-            """Emit events to pyee for testing and rate limiting validation."""
-            try:
-                platform = message.get("_platform")
-                subscription_id = message.get("_subscription_id")
-                event_type = message.get("event_type", message.get("type", "unknown"))
-                
-                # Create event name for pyee
-                event_name = f"{platform}_{subscription_id}_{event_type}"
-                
-                # Emit the event
-                self.event_emitter.emit(event_name, message)
-                
-                # Also emit a general event for testing
-                self.event_emitter.emit("message_processed", {
-                    "platform": platform,
-                    "subscription_id": subscription_id,
-                    "event_type": event_type,
-                    "timestamp": message.get("_timestamp"),
-                    "rate_limit": message.get("_rate_limit")
-                })
-                
-            except Exception as e:
-                logger.error(f"Error emitting to pyee: {e}")
-        
-        def add_message_handler(self, message_type: str, handler_func: callable) -> None:
-            """Add a custom message handler for specific message types."""
-            self.message_handlers[message_type] = handler_func
-            logger.info(f"Added handler for message type: {message_type}")
-        
-        def get_event_emitter(self) -> AsyncIOEventEmitter:
-            """Get the event emitter for external listener registration."""
-            return self.event_emitter
-        
-        def get_rate_limit_stats(self) -> Dict[str, Any]:
-            """Get current rate limiting statistics for testing."""
-            return self.rate_limit_stats.copy()
-        
-        def reset_rate_limit_stats(self) -> None:
-            """Reset rate limiting statistics."""
-            self.rate_limit_stats = {
-                "total_messages": 0,
-                "rate_limited_messages": 0,
-                "platform_stats": {},
-                "last_reset": datetime.now()
-            }
-            logger.info("Rate limit statistics reset")
-
-
 # Convenience function for quick setup
 def create_markets_manager(config_path: Optional[str] = None) -> MarketsManager:
     """
@@ -645,4 +394,6 @@ def create_markets_manager(config_path: Optional[str] = None) -> MarketsManager:
     Returns:
         MarketsManager: Configured manager instance
     """
+    #config path represents some illusory json subscription
+
     return MarketsManager(config_path)

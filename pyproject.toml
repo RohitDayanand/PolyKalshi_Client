@@ -1,0 +1,15 @@
+[project]
+name = "Websocket_Polymarket_Kalshi"                 # Name of your top-level package (i.e. folder name)
+version = "0.1.0"
+description = "My awesome project"
+authors = [
+  { name = "Your Name", email = "you@example.com" }
+]
+dependencies = []                   # Add runtime dependencies here (e.g., ["requests", "fastapi"])
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
