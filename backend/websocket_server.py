@@ -63,7 +63,7 @@ class TickerStreamManager:
     
     async def emit_ticker_update(self, ticker_data: dict):
         """Emit ticker update event (called by orderbook processors)"""
-        await self.event_emitter.emit('ticker_update', ticker_data)
+        self.event_emitter.emit('ticker_update', ticker_data)
 
 # Global stream manager instance
 stream_manager = TickerStreamManager()
