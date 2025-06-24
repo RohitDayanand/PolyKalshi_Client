@@ -11,34 +11,27 @@ logger = logging.getLogger(__name__)
 
 class TickerStreamPublisher:
     """
-    Publisher class that receives cleaned ticker updates and publishes them
+    Async publisher class that receives cleaned ticker updates and publishes them
     to WebSocket clients via the stream manager
     """
     
     def __init__(self):
-        self.loop = None
         self.running = False
     
-    def start(self):
-        """Start the publisher (sets up event loop if needed)"""
+    async def start(self):
+        """Start the async publisher"""
         if not self.running:
             self.running = True
-            if self.loop is None:
-                try:
-                    self.loop = asyncio.get_event_loop()
-                except RuntimeError:
-                    self.loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(self.loop)
             logger.info("TickerStreamPublisher started")
     
-    def stop(self):
-        """Stop the publisher"""
+    async def stop(self):
+        """Stop the async publisher"""
         self.running = False
         logger.info("TickerStreamPublisher stopped")
     
-    def publish_update(self, market_id: str, platform: str, summary_stats: Dict[str, Any]):
+    async def publish_update(self, market_id: str, platform: str, summary_stats: Dict[str, Any]):
         """
-        Publish a ticker update to WebSocket clients
+        Async publish a ticker update to WebSocket clients
         
         Args:
             market_id: The market identifier
@@ -60,38 +53,46 @@ class TickerStreamPublisher:
             "timestamp": time.time()
         }
         
-        # Schedule the async publish call
-        if self.loop and self.loop.is_running():
-            asyncio.create_task(publish_ticker_update(ticker_data))
-        else:
-            asyncio.run(publish_ticker_update(ticker_data))
-        
-        logger.debug(f"Published ticker update for {platform} market {market_id}")
+        try:
+            # Direct async call - no event loop juggling
+            await publish_ticker_update(ticker_data)
+            logger.debug(f"Published ticker update for {platform} market {market_id}")
+        except Exception as e:
+            logger.error(f"Failed to publish ticker update for {platform} market {market_id}: {e}")
 
 # Global publisher instance
 ticker_publisher = TickerStreamPublisher()
 
-# Convenience functions for direct use by orderbook processors
-def publish_polymarket_update(market_id: str, summary_stats: Dict[str, Any]):
-    """Publish Polymarket ticker update"""
-    ticker_publisher.publish_update(market_id, 'polymarket', summary_stats)
+# Async convenience functions for direct use by orderbook processors
+async def publish_polymarket_update(market_id: str, summary_stats: Dict[str, Any]):
+    """Async publish Polymarket ticker update"""
+    await ticker_publisher.publish_update(market_id, 'polymarket', summary_stats)
 
-def publish_kalshi_update(market_id: str, summary_stats: Dict[str, Any]):
-    """Publish Kalshi ticker update"""
-    ticker_publisher.publish_update(market_id, 'kalshi', summary_stats)
+async def publish_kalshi_update(market_id: str, summary_stats: Dict[str, Any]):
+    """Async publish Kalshi ticker update"""
+    await ticker_publisher.publish_update(market_id, 'kalshi', summary_stats)
 
-def start_ticker_publisher():
+async def start_ticker_publisher():
     """Start the global ticker publisher"""
-    ticker_publisher.start()
+    await ticker_publisher.start()
 
-def stop_ticker_publisher():
+async def stop_ticker_publisher():
     """Stop the global ticker publisher"""
-    ticker_publisher.stop()
+    await ticker_publisher.stop()
+
+# Fire-and-forget versions for non-blocking calls
+def publish_polymarket_update_nowait(market_id: str, summary_stats: Dict[str, Any]):
+    """Fire-and-forget Polymarket ticker update (non-blocking)"""
+    asyncio.create_task(publish_polymarket_update(market_id, summary_stats))
+
+def publish_kalshi_update_nowait(market_id: str, summary_stats: Dict[str, Any]):
+    """Fire-and-forget Kalshi ticker update (non-blocking)"""
+    asyncio.create_task(publish_kalshi_update(market_id, summary_stats))
 
 # Example usage for orderbook processors:
 """
 # In your orderbook processor code:
-from backend.ticker_stream_integration import publish_polymarket_update, publish_kalshi_update
+from backend.ticker_stream_integration import publish_kalshi_update_nowait, publish_polymarket_update_nowait
 
 # When you have cleaned ticker data:
 summary_stats = {
@@ -99,8 +100,12 @@ summary_stats = {
     "no": {"bid": 0.53, "ask": 0.55, "volume": 800.0}
 }
 
-# Publish to WebSocket clients
-publish_polymarket_update("some_market_id", summary_stats)
+# Fire-and-forget publish to WebSocket clients (NON-BLOCKING)
+publish_polymarket_update_nowait("some_market_id", summary_stats)
 # or
-publish_kalshi_update("some_market_id", summary_stats)
+publish_kalshi_update_nowait("some_market_id", summary_stats)
+
+# If you need to await (blocking):
+await publish_polymarket_update("some_market_id", summary_stats)
+await publish_kalshi_update("some_market_id", summary_stats)
 """
