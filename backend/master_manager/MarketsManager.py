@@ -38,14 +38,15 @@ from typing import Dict, List, Optional, Any, Union
 from datetime import datetime
 from pyee.asyncio import AsyncIOEventEmitter
 
-from polymarket_client import PolymarketClient, PolymarketClientConfig
+from polymarket_client.polymarket_client import PolymarketClient, PolymarketClientConfig
 from kalshi_client.kalshi_client import KalshiClient
 from kalshi_client.kalshi_client_config import KalshiClientConfig
 from kalshi_client.kalshi_environment import Environment
 from ticker_processor import KalshiJsonFormatter, PolyJsonFormatter
-from message_processor import MessageProcessor
-from kalshi_queue import KalshiQueue
-from polymarket_queue import PolymarketQueue
+from deprecated.message_processor import MessageProcessor
+from kalshi_client.kalshi_queue import KalshiQueue
+from kalshi_client.kalshi_message_processor import KalshiMessageProcessor
+from polymarket_client.polymarket_queue import PolymarketQueue
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -69,11 +70,21 @@ class MarketsManager:
         self.kalshi_queue = KalshiQueue(max_queue_size=1000)
         self.polymarket_queue = PolymarketQueue(max_queue_size=1000)
         
+        # Initialize Kalshi message processor
+        self.kalshi_processor = KalshiMessageProcessor()
+        
+        # Set up processor callbacks
+        self.kalshi_processor.set_error_callback(self._handle_kalshi_error)
+        self.kalshi_processor.set_orderbook_update_callback(self._handle_kalshi_orderbook_update)
+        
+        # Connect processor to queue
+        self.kalshi_queue.set_message_handler(self.kalshi_processor.handle_message)
+        
         # Start queue processors
         asyncio.create_task(self.kalshi_queue.start())
         asyncio.create_task(self.polymarket_queue.start())
         
-        logger.info("MarketsManager initialized with async queues")
+        logger.info("MarketsManager initialized with async queues and Kalshi message processor")
 
         self.KALSHI_CHANNEL = "orderbook_delta"
         #no polymarket channel, markets channel by default
@@ -359,9 +370,36 @@ class MarketsManager:
             "total_connections": len(self.polymarket_clients) + len(self.kalshi_clients),
             "kalshi_queue_stats": self.kalshi_queue.get_stats(),
             "polymarket_queue_stats": self.polymarket_queue.get_stats(),
+            "kalshi_processor_stats": self.kalshi_processor.get_stats(),
             "polymarket_details": poly_status,
             "kalshi_details": kalshi_status
         }
+    
+    async def _handle_kalshi_error(self, error_info: Dict[str, Any]) -> None:
+        """Handle errors from Kalshi message processor."""
+        logger.error(f"Kalshi processor error: {error_info.get('message')} (code: {error_info.get('code')})")
+        # Could emit events here for external error handling
+    
+    async def _handle_kalshi_orderbook_update(self, sid: int, orderbook_state) -> None:
+        """Handle orderbook updates from Kalshi message processor."""
+        logger.debug(f"Orderbook updated for sid={sid}, ticker={orderbook_state.market_ticker}")
+        # Could emit events here for external orderbook consumers
+    
+    def get_kalshi_orderbook(self, sid: int):
+        """Get current Kalshi orderbook state for a market."""
+        return self.kalshi_processor.get_orderbook(sid)
+    
+    def get_all_kalshi_orderbooks(self):
+        """Get all current Kalshi orderbook states."""
+        return self.kalshi_processor.get_all_orderbooks()
+    
+    def get_kalshi_summary_stats(self, sid: int):
+        """Get yes/no bid/ask/volume summary for a Kalshi market.""" 
+        return self.kalshi_processor.get_summary_stats(sid)
+    
+    def get_all_kalshi_summary_stats(self):
+        """Get summary stats for all active Kalshi markets."""
+        return self.kalshi_processor.get_all_summary_stats()
     
 # Convenience function for quick setup
 def create_markets_manager(config_path: Optional[str] = None) -> MarketsManager:

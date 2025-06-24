@@ -20,6 +20,7 @@ import time
 import threading
 import logging
 import sys
+import os
 print(sys.executable)
 from datetime import datetime, timedelta
 from models import get_async_session
@@ -61,26 +62,27 @@ class PolymarketWebSocket:
             raise
 
     def load_market_data(self):
-        """Load market data from the generated files."""
+        """Load market data from environment variable."""
         try:
-            with open(f'{self.slug}_condition_id_list.json', 'r') as f:
-                condition_ids = json.load(f)
+            # Get token IDs from environment variable
+            token_ids_env = os.getenv("TEST_CONDITIONIDS", ["43210649919920387692897556570215211530726066784473189217574973103206532342908", "109563355540535267896717179760304427991142137794862654167728055132212021601844"])
+            print(token_ids_env)
+            if not token_ids_env:
+                logger.error("TEST_CONDITIONIDS environment variable not found")
+                return None, None
             
-            with open(f'{self.slug}_event_token_ids_dict.json', 'r') as f:
-                event_token_ids = json.load(f)
-                
-            with open(f'{self.slug}_token_ids_list.json', 'r') as f:
-                token_ids = json.load(f)
+            # Not json, just array array
+            token_ids = token_ids_env
+            condition_ids = []  # Empty list since we're using env token IDs
             
-            logger.info(f"Loaded {len(condition_ids)} condition IDs and {len(token_ids)} token IDs")
+            logger.info(f"Using token IDs from environment: {len(token_ids)} token IDs")
             return condition_ids, token_ids
             
-        except FileNotFoundError as e:
-            logger.error(f"Market data file not found: {e}")
-            logger.info("Please run Market_Finder.py first to generate market data files")
-            return None, None
         except json.JSONDecodeError as e:
-            logger.error(f"Error parsing market data JSON: {e}")
+            logger.error(f"Error parsing TEST_CONDITIONIDS JSON: {e}")
+            return None, None
+        except Exception as e:
+            logger.error(f"Error loading market data from environment: {e}")
             return None, None
 
     def get_market_metrics_with_depth(self, order_book):
@@ -282,8 +284,10 @@ class PolymarketWebSocket:
         self.last_pong = datetime.now()
         
         condition_ids, token_ids = self.load_market_data()
+
+        print("My token ids", token_ids)
         
-        if not condition_ids or not token_ids:
+        if not token_ids:
             logger.error("Failed to load market data")
             ws.close()
             return
@@ -302,6 +306,24 @@ class PolymarketWebSocket:
             ws.close()
             return
         
+        #try sending second message
+
+
+        new_token_ids = json.loads("[\"78397765613055343660981684625548247730988640449758076460513963030464624568339\", \"32991671287341934767805431457746630433481642330962899566829019629930387398671\"]")
+        
+        subscribe_message = {
+            "type": "MARKET",  # Channel type
+            "assets_ids": new_token_ids,  # Array of token IDs
+        }
+        print("Attempting second send")
+        
+        try:
+            ws.send(json.dumps(subscribe_message))
+            logger.info("Subscription message sent successfully")
+        except Exception as e:
+            logger.error(f"Failed to send subscription message: {str(e)}")
+            ws.close()
+            return
         logger.info(f"Subscribed to {len(condition_ids)} markets and {len(token_ids)} assets")
 
     def send_ping(self):
