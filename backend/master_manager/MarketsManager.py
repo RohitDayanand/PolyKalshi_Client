@@ -47,6 +47,8 @@ from deprecated.message_processor import MessageProcessor
 from kalshi_client.kalshi_queue import KalshiQueue
 from kalshi_client.kalshi_message_processor import KalshiMessageProcessor
 from polymarket_client.polymarket_queue import PolymarketQueue
+from polymarket_client.polymarket_message_processor import PolymarketMessageProcessor
+from polymarket_client.polymarket_ticker_publisher import PolymarketTickerPublisher
 from kalshi_ticker_publisher import KalshiTickerPublisher
 
 # Configure logging
@@ -74,9 +76,18 @@ class MarketsManager:
         # Initialize Kalshi message processor
         self.kalshi_processor = KalshiMessageProcessor()
         
+        # Initialize Polymarket message processor
+        self.polymarket_processor = PolymarketMessageProcessor()
+        
         # Initialize Kalshi ticker publisher (1-second intervals)
         self.kalshi_ticker_publisher = KalshiTickerPublisher(
             kalshi_processor=self.kalshi_processor,
+            publish_interval=1.0
+        )
+        
+        # Initialize Polymarket ticker publisher (1-second intervals)
+        self.polymarket_ticker_publisher = PolymarketTickerPublisher(
+            polymarket_processor=self.polymarket_processor,
             publish_interval=1.0
         )
         
@@ -84,15 +95,20 @@ class MarketsManager:
         self.kalshi_processor.set_error_callback(self._handle_kalshi_error)
         self.kalshi_processor.set_orderbook_update_callback(self._handle_kalshi_orderbook_update)
         
-        # Connect processor to queue
-        self.kalshi_queue.set_message_handler(self.kalshi_processor.handle_message)
+        self.polymarket_processor.set_error_callback(self._handle_polymarket_error)
+        self.polymarket_processor.set_orderbook_update_callback(self._handle_polymarket_orderbook_update)
         
-        # Start queue processors and ticker publisher
+        # Connect processors to queues
+        self.kalshi_queue.set_message_handler(self.kalshi_processor.handle_message)
+        self.polymarket_queue.set_message_handler(self.polymarket_processor.handle_message)
+        
+        # Start queue processors and ticker publishers
         asyncio.create_task(self.kalshi_queue.start())
         asyncio.create_task(self.polymarket_queue.start())
         asyncio.create_task(self.kalshi_ticker_publisher.start())
+        asyncio.create_task(self.polymarket_ticker_publisher.start())
         
-        logger.info("MarketsManager initialized with async queues, Kalshi message processor, and ticker publisher")
+        logger.info("MarketsManager initialized with async queues, Kalshi/Polymarket message processors, and ticker publishers")
 
         self.KALSHI_CHANNEL = "orderbook_delta"
         #no polymarket channel, markets channel by default
@@ -337,8 +353,9 @@ class MarketsManager:
         """Disconnect all clients and stop processing."""
         logger.info("Disconnecting all clients...")
         
-        # Stop ticker publisher first
+        # Stop ticker publishers first
         await self.kalshi_ticker_publisher.stop()
+        await self.polymarket_ticker_publisher.stop()
         
         # Stop queue processors
         await self.kalshi_queue.stop()
@@ -382,7 +399,9 @@ class MarketsManager:
             "kalshi_queue_stats": self.kalshi_queue.get_stats(),
             "polymarket_queue_stats": self.polymarket_queue.get_stats(),
             "kalshi_processor_stats": self.kalshi_processor.get_stats(),
+            "polymarket_processor_stats": self.polymarket_processor.get_stats(),
             "kalshi_ticker_publisher_stats": self.kalshi_ticker_publisher.get_stats(),
+            "polymarket_ticker_publisher_stats": self.polymarket_ticker_publisher.get_stats(),
             "polymarket_details": poly_status,
             "kalshi_details": kalshi_status
         }
@@ -395,6 +414,16 @@ class MarketsManager:
     async def _handle_kalshi_orderbook_update(self, sid: int, orderbook_state) -> None:
         """Handle orderbook updates from Kalshi message processor."""
         logger.debug(f"Orderbook updated for sid={sid}, ticker={orderbook_state.market_ticker}")
+        # Could emit events here for external orderbook consumers
+    
+    async def _handle_polymarket_error(self, error_info: Dict[str, Any]) -> None:
+        """Handle errors from Polymarket message processor."""
+        logger.error(f"Polymarket processor error: {error_info.get('message')}")
+        # Could emit events here for external error handling
+    
+    async def _handle_polymarket_orderbook_update(self, asset_id: str, orderbook_state) -> None:
+        """Handle orderbook updates from Polymarket message processor."""
+        logger.debug(f"Orderbook updated for asset_id={asset_id}, market={orderbook_state.market}")
         # Could emit events here for external orderbook consumers
     
     def get_kalshi_orderbook(self, sid: int):
@@ -422,6 +451,32 @@ class MarketsManager:
         await self.kalshi_ticker_publisher.stop()
         await self.kalshi_ticker_publisher.start()
         logger.info("Kalshi ticker publisher restarted")
+    
+    def get_polymarket_orderbook(self, asset_id: str):
+        """Get current Polymarket orderbook state for an asset."""
+        return self.polymarket_processor.get_orderbook(asset_id)
+    
+    def get_all_polymarket_orderbooks(self):
+        """Get all current Polymarket orderbook states."""
+        return self.polymarket_processor.get_all_orderbooks()
+    
+    def get_polymarket_market_summary(self, asset_id: str):
+        """Get bid/ask/volume summary for a Polymarket asset."""
+        return self.polymarket_processor.get_market_summary(asset_id)
+    
+    def get_all_polymarket_market_summaries(self):
+        """Get market summaries for all active Polymarket assets."""
+        return self.polymarket_processor.get_all_market_summaries()
+    
+    def force_publish_polymarket_asset(self, asset_id: str) -> bool:
+        """Force immediate publication of a Polymarket asset (bypasses rate limiting)."""
+        return self.polymarket_ticker_publisher.force_publish_asset(asset_id)
+    
+    async def restart_polymarket_ticker_publisher(self):
+        """Restart the Polymarket ticker publisher."""
+        await self.polymarket_ticker_publisher.stop()
+        await self.polymarket_ticker_publisher.start()
+        logger.info("Polymarket ticker publisher restarted")
     
 # Convenience function for quick setup
 def create_markets_manager(config_path: Optional[str] = None) -> MarketsManager:
