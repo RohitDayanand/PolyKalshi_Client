@@ -202,31 +202,43 @@ class PolymarketMessageProcessor:
                 logger.debug(f"Raw message: {raw_message}")
                 return
             
-            # Extract event type - use .get() for safety
-            event_type = message_data.get('event_type')
-            if not event_type:
-                logger.warning(f"No event_type found in Polymarket message: {message_data}")
-                return
-            
-            logger.debug(f"Processing Polymarket message event_type: {event_type}")
-            
-            # Route to appropriate handler
-            if event_type == 'book':
-                await self._handle_book_message(message_data, metadata)
-            elif event_type == 'price_change':
-                await self._handle_price_change_message(message_data, metadata)
-            elif event_type == 'tick_size_change':
-                await self._handle_tick_size_change_message(message_data, metadata)
-            elif event_type == 'last_trade_price':
-                await self._handle_last_trade_price_message(message_data, metadata)
+            # Handle both arrays and single objects
+            if isinstance(message_data, list):
+                # Array of messages - process each individually
+                logger.debug(f"Processing Polymarket array with {len(message_data)} messages")
+                for individual_message in message_data:
+                    await self._process_individual_message(individual_message, metadata)
             else:
-                logger.info(f"Unknown Polymarket event_type: {event_type}")
-                logger.debug(f"Message data: {message_data}")
+                # Single message object
+                await self._process_individual_message(message_data, metadata)
                 
         except Exception as e:
             logger.error(f"Error processing Polymarket message: {e}")
             logger.debug(f"Raw message: {raw_message}")
             logger.debug(f"Metadata: {metadata}")
+    
+    async def _process_individual_message(self, message_data: Dict[str, Any], metadata: Dict[str, Any]) -> None:
+        """Process a single Polymarket message object."""
+        # Extract event type - use .get() for safety
+        event_type = message_data.get('event_type')
+        if not event_type:
+            logger.warning(f"No event_type found in Polymarket message: {message_data}")
+            return
+        
+        logger.debug(f"Processing Polymarket message event_type: {event_type}")
+        
+        # Route to appropriate handler
+        if event_type == 'book':
+            await self._handle_book_message(message_data, metadata)
+        elif event_type == 'price_change':
+            await self._handle_price_change_message(message_data, metadata)
+        elif event_type == 'tick_size_change':
+            await self._handle_tick_size_change_message(message_data, metadata)
+        elif event_type == 'last_trade_price':
+            await self._handle_last_trade_price_message(message_data, metadata)
+        else:
+            logger.info(f"Unknown Polymarket event_type: {event_type}")
+            logger.debug(f"Message data: {message_data}")
     
     async def _handle_book_message(self, message_data: Dict[str, Any], metadata: Dict[str, Any]) -> None:
         """Handle full orderbook snapshots - overwrites current state."""

@@ -38,18 +38,18 @@ from typing import Dict, List, Optional, Any, Union
 from datetime import datetime
 from pyee.asyncio import AsyncIOEventEmitter
 
-from polymarket_client.polymarket_client import PolymarketClient, PolymarketClientConfig
-from kalshi_client.kalshi_client import KalshiClient
-from kalshi_client.kalshi_client_config import KalshiClientConfig
-from kalshi_client.kalshi_environment import Environment
-from ticker_processor import KalshiJsonFormatter, PolyJsonFormatter
-from deprecated.message_processor import MessageProcessor
-from kalshi_client.kalshi_queue import KalshiQueue
-from kalshi_client.kalshi_message_processor import KalshiMessageProcessor
-from polymarket_client.polymarket_queue import PolymarketQueue
-from polymarket_client.polymarket_message_processor import PolymarketMessageProcessor
-from polymarket_client.polymarket_ticker_publisher import PolymarketTickerPublisher
-from kalshi_ticker_publisher import KalshiTickerPublisher
+from .polymarket_client.polymarket_client import PolymarketClient, PolymarketClientConfig
+from .kalshi_client.kalshi_client import KalshiClient
+from .kalshi_client.kalshi_client_config import KalshiClientConfig
+from .kalshi_client.kalshi_environment import Environment
+from .ticker_processor import KalshiJsonFormatter, PolyJsonFormatter
+from .deprecated.message_processor import MessageProcessor
+from .kalshi_client.kalshi_queue import KalshiQueue
+from .kalshi_client.kalshi_message_processor import KalshiMessageProcessor
+from .polymarket_client.polymarket_queue import PolymarketQueue
+from .polymarket_client.polymarket_message_processor import PolymarketMessageProcessor
+from .polymarket_client.polymarket_ticker_publisher import PolymarketTickerPublisher
+from .kalshi_ticker_publisher import KalshiTickerPublisher
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -161,11 +161,17 @@ class MarketsManager:
             token_ids = subscription_id
 
         # Create client config with token_ids
+        # Check for debug logging environment variable
+        import os
+        debug_logging = os.getenv('POLYMARKET_DEBUG_LOGGING', 'false').lower() == 'true'
+        
         config = PolymarketClientConfig(
             slug="default-polymarket-subscription",
             ping_interval=30,
             log_level="INFO",
-            token_id=token_ids
+            token_id=token_ids,
+            debug_websocket_logging=debug_logging,
+            debug_log_file="/home/rohit/Websocket_Polymarket_Kalshi/polymarket_debug.txt"
         )
         
         client = PolymarketClient(config)

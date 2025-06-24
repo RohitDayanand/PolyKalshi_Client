@@ -41,7 +41,9 @@ class PolymarketClientConfig:
         ping_interval: int = 30,
         reconnect_interval: int = 5,
         log_level: str = "INFO",
-        token_id: List[str] = [""]
+        token_id: List[str] = [""],
+        debug_websocket_logging: bool = False,
+        debug_log_file: str = "polymarket_debug.txt"
     ):
         self.slug = slug
         self.ws_url = ws_url
@@ -49,6 +51,8 @@ class PolymarketClientConfig:
         self.reconnect_interval = reconnect_interval
         self.log_level = log_level
         self.token_id = token_id
+        self.debug_websocket_logging = debug_websocket_logging
+        self.debug_log_file = debug_log_file
 
 
 class PolymarketClient:
@@ -64,6 +68,8 @@ class PolymarketClient:
         self.reconnect_interval = config.reconnect_interval
         self.token_id = config.token_id
         self.log_level = config.log_level
+        self.debug_websocket_logging = config.debug_websocket_logging
+        self.debug_log_file = config.debug_log_file
         self.websocket = None
         self.is_connected = False
         self.should_reconnect = True
@@ -71,7 +77,16 @@ class PolymarketClient:
         self.on_message_callback: Optional[Callable[[str, Dict], None]] = None
         self.on_connection_callback: Optional[Callable[[bool], None]] = None
         self.on_error_callback: Optional[Callable[[Exception], None]] = None
-        logger.debug(f"PolymarketClient initialized with slug={self.slug}, token_id={self.token_id}")
+        
+        # Initialize debug logging if enabled
+        self.debug_logger = None
+        if self.debug_websocket_logging:
+            self._setup_debug_logger()
+        
+        logger.debug(f"PolymarketClient initialized with slug={self.slug}, token_id={self.token_id}, debug_logging={self.debug_websocket_logging}")
+        
+        if self.debug_websocket_logging:
+            self._log_debug("INIT", f"PolymarketClient initialized - slug={self.slug}, tokens={len(self.token_id)}, ws_url={self.ws_url}")
 
     def set_message_callback(self, callback: Callable[[str, Dict], None]) -> None:
         self.on_message_callback = callback
@@ -82,20 +97,48 @@ class PolymarketClient:
     def set_error_callback(self, callback: Callable[[Exception], None]) -> None:
         self.on_error_callback = callback
 
+    def _setup_debug_logger(self):
+        """Set up dedicated debug logger for WebSocket messages."""
+        # Clear any existing content in debug file
+        with open(self.debug_log_file, 'w') as f:
+            f.write(f"=== POLYMARKET WEBSOCKET DEBUG LOG ===\n")
+            f.write(f"Start Time: {datetime.now().isoformat()}\n")
+            f.write(f"Slug: {self.slug}\n")
+            f.write(f"Token IDs: {self.token_id}\n")
+            f.write(f"WebSocket URL: {self.ws_url}\n")
+            f.write("="*50 + "\n\n")
+
+    def _log_debug(self, direction: str, message: str):
+        """Log debug message to file if debug logging is enabled."""
+        if not self.debug_websocket_logging:
+            return
+        
+        timestamp = datetime.now().isoformat()
+        try:
+            with open(self.debug_log_file, 'a') as f:
+                f.write(f"[{timestamp}] {direction}: {message}\n")
+        except Exception as e:
+            logger.error(f"Failed to write to debug log: {e}")
+
     async def subscribe(self):
         if not self.is_connected or not self.websocket:
             logger.error("WebSocket not connected. Cannot subscribe.")
+            self._log_debug("ERROR", "WebSocket not connected. Cannot subscribe.")
             return False
         subscribe_message = {
             "type": "MARKET",
             "assets_ids": self.token_id,
         }
         try:
-            await self.websocket.send(json.dumps(subscribe_message))
+            message_json = json.dumps(subscribe_message)
+            self._log_debug("OUT", f"SUBSCRIPTION: {message_json}")
+            await self.websocket.send(message_json)
             logger.info(f"Subscribed to {len(self.token_id)} assets: {self.token_id}")
+            self._log_debug("INFO", f"Subscribed to {len(self.token_id)} assets: {self.token_id}")
             return True
         except Exception as e:
             logger.error(f"Failed to send subscription message: {e}")
+            self._log_debug("ERROR", f"Failed to send subscription message: {e}")
             await self.websocket.close()
             return False
 
@@ -103,10 +146,13 @@ class PolymarketClient:
         while self.should_reconnect:
             if self.is_connected and self.websocket:
                 try:
-                    await self.websocket.send(json.dumps({"type": "ping"}))
+                    ping_message = json.dumps({"type": "ping"})
+                    self._log_debug("OUT", f"PING: {ping_message}")
+                    await self.websocket.send(ping_message)
                     logger.debug("Sent ping message")
                 except Exception as e:
                     logger.error(f"Failed to send ping: {e}")
+                    self._log_debug("ERROR", f"Failed to send ping: {e}")
                     self.is_connected = False
             await asyncio.sleep(self.ping_interval)
 
@@ -114,11 +160,13 @@ class PolymarketClient:
         try:
             async for message in self.websocket:
                 logger.debug(f"Received WebSocket message: {message}")
+                self._log_debug("IN", f"RAW_MESSAGE: {message}")
                 
                 # Handle simple PONG responses without JSON parsing
                 if message == "PONG":
                     self.last_pong = datetime.now()
                     logger.debug("Received PONG response")
+                    self._log_debug("IN", "PONG: Simple PONG received")
                     continue
                 
                 # Handle PONG in JSON format
@@ -126,19 +174,27 @@ class PolymarketClient:
                     data = json.loads(message)
                     if isinstance(data, dict) and data.get('type') == 'PONG':
                         self.last_pong = datetime.now()
+                        self._log_debug("IN", "PONG: JSON PONG received")
                         continue
                     elif isinstance(data, list):
                         # Check if any message in array is PONG
                         has_pong = any(msg.get('type') == 'PONG' for msg in data if isinstance(msg, dict))
                         if has_pong:
                             self.last_pong = datetime.now()
+                            self._log_debug("IN", "PONG: Array contains PONG")
+                        else:
+                            self._log_debug("IN", f"MARKET_DATA_ARRAY: {len(data)} messages")
+                    else:
+                        self._log_debug("IN", f"MARKET_DATA_OBJECT: {data.get('type', 'unknown')} message")
                 except json.JSONDecodeError:
                     # Not JSON, will be handled by queue processor
+                    self._log_debug("IN", "NON_JSON: Raw message (not parseable as JSON)")
                     pass
                 
                 # Send raw message to queue without full decoding
                 if self.on_message_callback:
                     logger.debug("Forwarding raw message to queue")
+                    self._log_debug("FORWARD", "Forwarding message to queue processor")
                     metadata = {
                         "slug": self.slug,
                         "token_id": self.token_id,
@@ -150,6 +206,7 @@ class PolymarketClient:
                     
         except Exception as e:
             logger.error(f"WebSocket error: {e}")
+            self._log_debug("ERROR", f"WebSocket error in handle_messages: {e}")
             if self.on_error_callback:
                 self.on_error_callback(e)
             self.is_connected = False
@@ -179,6 +236,7 @@ class PolymarketClient:
         while self.should_reconnect:
             try:
                 logger.info(f"Connecting to WebSocket URL: {self.ws_url}")
+                self._log_debug("CONNECT", f"Attempting connection to {self.ws_url}")
                 async with websockets.connect(self.ws_url, ping_interval=None) as websocket:
                     self.websocket = websocket
                     self.is_connected = True
@@ -186,17 +244,20 @@ class PolymarketClient:
                     if self.on_connection_callback:
                         self.on_connection_callback(True)
                     logger.info("WebSocket connection opened (async)")
+                    self._log_debug("CONNECT", "WebSocket connection established successfully")
                     
                     # Immediately subscribe upon connection
                     await self.subscribe()
                     
                     # Start ping and message handler concurrently
+                    self._log_debug("CONNECT", "Starting ping sender and message handler")
                     await asyncio.gather(
                         self.send_ping(),
                         self.handle_messages()
                     )
             except Exception as e:
                 logger.error(f"Connection error: {e}")
+                self._log_debug("ERROR", f"Connection error: {e}")
                 self.is_connected = False
                 if self.on_connection_callback:
                     self.on_connection_callback(False)
@@ -205,15 +266,19 @@ class PolymarketClient:
                 
                 if self.should_reconnect:
                     logger.info(f"Reconnecting in {self.reconnect_interval} seconds...")
+                    self._log_debug("RECONNECT", f"Waiting {self.reconnect_interval} seconds before reconnect attempt")
                     await asyncio.sleep(self.reconnect_interval)
 
     async def disconnect(self):
         logger.info("Shutting down Polymarket client...")
+        self._log_debug("DISCONNECT", "Initiating client shutdown")
         self.should_reconnect = False
         if self.websocket:
             await self.websocket.close()
+            self._log_debug("DISCONNECT", "WebSocket connection closed")
         self.is_connected = False
         logger.info("Polymarket client shutdown complete")
+        self._log_debug("DISCONNECT", "Client shutdown complete")
 
     def is_running(self) -> bool:
         return self.is_connected and self.should_reconnect

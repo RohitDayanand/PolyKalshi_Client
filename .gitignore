@@ -91,3 +91,8 @@ coverage/
 # OS-specific
 .DS_Store
 Thumbs.db
+
+#AI/Claude
+.claude
+.claude/
+CLAUDE.md
