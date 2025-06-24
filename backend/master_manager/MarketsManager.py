@@ -47,6 +47,7 @@ from deprecated.message_processor import MessageProcessor
 from kalshi_client.kalshi_queue import KalshiQueue
 from kalshi_client.kalshi_message_processor import KalshiMessageProcessor
 from polymarket_client.polymarket_queue import PolymarketQueue
+from kalshi_ticker_publisher import KalshiTickerPublisher
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -73,6 +74,12 @@ class MarketsManager:
         # Initialize Kalshi message processor
         self.kalshi_processor = KalshiMessageProcessor()
         
+        # Initialize Kalshi ticker publisher (1-second intervals)
+        self.kalshi_ticker_publisher = KalshiTickerPublisher(
+            kalshi_processor=self.kalshi_processor,
+            publish_interval=1.0
+        )
+        
         # Set up processor callbacks
         self.kalshi_processor.set_error_callback(self._handle_kalshi_error)
         self.kalshi_processor.set_orderbook_update_callback(self._handle_kalshi_orderbook_update)
@@ -80,11 +87,12 @@ class MarketsManager:
         # Connect processor to queue
         self.kalshi_queue.set_message_handler(self.kalshi_processor.handle_message)
         
-        # Start queue processors
+        # Start queue processors and ticker publisher
         asyncio.create_task(self.kalshi_queue.start())
         asyncio.create_task(self.polymarket_queue.start())
+        asyncio.create_task(self.kalshi_ticker_publisher.start())
         
-        logger.info("MarketsManager initialized with async queues and Kalshi message processor")
+        logger.info("MarketsManager initialized with async queues, Kalshi message processor, and ticker publisher")
 
         self.KALSHI_CHANNEL = "orderbook_delta"
         #no polymarket channel, markets channel by default
@@ -329,6 +337,9 @@ class MarketsManager:
         """Disconnect all clients and stop processing."""
         logger.info("Disconnecting all clients...")
         
+        # Stop ticker publisher first
+        await self.kalshi_ticker_publisher.stop()
+        
         # Stop queue processors
         await self.kalshi_queue.stop()
         await self.polymarket_queue.stop()
@@ -371,6 +382,7 @@ class MarketsManager:
             "kalshi_queue_stats": self.kalshi_queue.get_stats(),
             "polymarket_queue_stats": self.polymarket_queue.get_stats(),
             "kalshi_processor_stats": self.kalshi_processor.get_stats(),
+            "kalshi_ticker_publisher_stats": self.kalshi_ticker_publisher.get_stats(),
             "polymarket_details": poly_status,
             "kalshi_details": kalshi_status
         }
@@ -400,6 +412,16 @@ class MarketsManager:
     def get_all_kalshi_summary_stats(self):
         """Get summary stats for all active Kalshi markets."""
         return self.kalshi_processor.get_all_summary_stats()
+    
+    def force_publish_kalshi_market(self, sid: int) -> bool:
+        """Force immediate publication of a Kalshi market (bypasses rate limiting)."""
+        return self.kalshi_ticker_publisher.force_publish_market(sid)
+    
+    async def restart_kalshi_ticker_publisher(self):
+        """Restart the Kalshi ticker publisher."""
+        await self.kalshi_ticker_publisher.stop()
+        await self.kalshi_ticker_publisher.start()
+        logger.info("Kalshi ticker publisher restarted")
     
 # Convenience function for quick setup
 def create_markets_manager(config_path: Optional[str] = None) -> MarketsManager:
