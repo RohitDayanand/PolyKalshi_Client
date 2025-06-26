@@ -80,7 +80,9 @@ class ChannelManager:
         self._invalidate_cache()
         self.stats["active_subscriptions"] = sum(len(subs) for subs in self.subscriptions.values())
         
-        logger.info(f"Subscription added: {subscription_filter.subscription_type.value}")
+        logger.info(f"🔗 CHANNEL MANAGER: Subscription added - Type: {subscription_filter.subscription_type.value}, Platform: {subscription_filter.platform}, Market: {subscription_filter.market_id}")
+        logger.info(f"🔗 CHANNEL MANAGER: Total subscriptions for this websocket: {len(self.subscriptions[websocket])}")
+        logger.info(f"🔗 CHANNEL MANAGER: Total active subscriptions across all websockets: {self.stats['active_subscriptions']}")
     
     def unsubscribe(self, websocket: WebSocket, subscription_type: SubscriptionType, 
                    platform: str = None, market_id: str = None):
@@ -186,6 +188,8 @@ class ChannelManager:
     
     async def broadcast_ticker_update(self, ticker_data: Dict):
         """Broadcast ticker update to relevant subscribers with advanced filtering"""
+        logger.info(f"📻 CHANNEL MANAGER: Starting broadcast for market_id={ticker_data.get('market_id')}, platform={ticker_data.get('platform')}")
+        
         self._rebuild_caches()
         
         # Collect subscribers using optimized caches
@@ -194,31 +198,52 @@ class ChannelManager:
         # Add "all" subscribers
         if self._all_subscribers_cache:
             subscribers.update(self._all_subscribers_cache)
+            logger.info(f"📻 CHANNEL MANAGER: Added {len(self._all_subscribers_cache)} 'all' subscribers")
         
         # Add platform-specific subscribers
         platform = ticker_data.get('platform')
         if platform and platform in self._platform_cache:
-            subscribers.update(self._platform_cache[platform])
+            platform_subs = self._platform_cache[platform]
+            subscribers.update(platform_subs)
+            logger.info(f"📻 CHANNEL MANAGER: Added {len(platform_subs)} platform '{platform}' subscribers")
         
         # Add market-specific subscribers
         market_id = ticker_data.get('market_id')
         if market_id and market_id in self._market_cache:
-            subscribers.update(self._market_cache[market_id])
+            market_subs = self._market_cache[market_id]
+            subscribers.update(market_subs)
+            logger.info(f"📻 CHANNEL MANAGER: Added {len(market_subs)} market '{market_id}' subscribers")
         
         # Add custom filter subscribers (these require individual checking)
+        custom_count = 0
         for websocket, filters in self.subscriptions.items():
             for sub_filter in filters:
                 if sub_filter.subscription_type == SubscriptionType.CUSTOM:
                     if self._matches_filter(ticker_data, sub_filter):
                         subscribers.add(websocket)
+                        custom_count += 1
+        
+        if custom_count > 0:
+            logger.info(f"📻 CHANNEL MANAGER: Added {custom_count} custom filter subscribers")
+        
+        logger.info(f"📻 CHANNEL MANAGER: Total subscribers to broadcast to: {len(subscribers)}")
         
         # Broadcast to all matching subscribers
         if subscribers:
             await self._send_to_subscribers(subscribers, ticker_data)
+        else:
+            logger.warning(f"📻 CHANNEL MANAGER: No subscribers found for market_id={market_id}, platform={platform}")
+            # Debug: show current cache state
+            logger.info(f"📻 CHANNEL MANAGER DEBUG: Platform cache keys: {list(self._platform_cache.keys())}")
+            logger.info(f"📻 CHANNEL MANAGER DEBUG: Market cache keys: {list(self._market_cache.keys())}")
+            logger.info(f"📻 CHANNEL MANAGER DEBUG: All subscribers: {len(self._all_subscribers_cache) if self._all_subscribers_cache else 0}")
+            logger.info(f"📻 CHANNEL MANAGER DEBUG: Total connections: {len(self.connections)}")
+            logger.info(f"📻 CHANNEL MANAGER DEBUG: Total subscriptions: {len(self.subscriptions)}")
     
     async def _send_to_subscribers(self, subscribers: Set[WebSocket], data: Dict):
         """Send data to set of WebSocket subscribers with error handling"""
         message = json.dumps(data)
+        logger.info(f"📤 CHANNEL MANAGER: Sending to {len(subscribers)} subscribers: {message[:200]}...")
         disconnected = set()
         
         send_tasks = []
@@ -228,6 +253,7 @@ class ChannelManager:
         results = await asyncio.gather(*send_tasks, return_exceptions=True)
         
         # Process results and track disconnections
+        successful_sends = 0
         for i, result in enumerate(results):
             websocket = list(subscribers)[i]
             if isinstance(result, Exception):
@@ -235,7 +261,10 @@ class ChannelManager:
                 disconnected.add(websocket)
                 self.stats["failed_sends"] += 1
             else:
+                successful_sends += 1
                 self.stats["messages_sent"] += 1
+        
+        logger.info(f"📤 CHANNEL MANAGER: Successfully sent to {successful_sends}/{len(subscribers)} subscribers")
         
         # Clean up disconnected clients
         for websocket in disconnected:

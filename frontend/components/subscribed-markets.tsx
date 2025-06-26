@@ -1,14 +1,90 @@
 "use client"
 
-import { useMarketContext } from "@/context/market-context"
+import { useMarketSubscription } from "@/lib/store/marketSubscriptionHooks"
+import { useAppSelector } from "@/lib/store/hooks"
+import { selectSubscriptions } from "@/lib/store/apiSubscriptionSlice"
+import { marketSearchService } from "@/lib/search-service"
+import { useState, useEffect } from "react"
+import type { Market } from "@/types/market"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Trash2, Eye } from "lucide-react"
+import { Trash2, Eye, Wifi, WifiOff, AlertCircle } from "lucide-react"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Badge } from "@/components/ui/badge"
 
 export function SubscribedMarkets() {
-  const { subscribedMarkets, unsubscribeFromMarket, setActiveMarkets } = useMarketContext()
+  const { isWebSocketConnected } = useMarketSubscription()
+  const subscriptions = useAppSelector(selectSubscriptions)
+  const [subscribedMarkets, setSubscribedMarkets] = useState<Market[]>([])
+  
+  // Load subscribed markets from marketSearchService
+  useEffect(() => {
+    const loadSubscribedMarkets = async () => {
+      try {
+        const selectedTokens = await marketSearchService.getSelectedTokens()
+        // Convert selected tokens to Market format
+        const markets: Market[] = Object.values(selectedTokens).map((token: any) => ({
+          id: token.marketId,
+          title: token.marketTitle,
+          category: 'General',
+          volume: 0,
+          platform: token.marketId.startsWith('poly_') ? 'polymarket' : 'kalshi'
+        }))
+        setSubscribedMarkets(markets)
+      } catch (error) {
+        console.error('Error loading subscribed markets:', error)
+      }
+    }
+    
+    loadSubscribedMarkets()
+  }, [])
+
+  const getConnectionIcon = (marketId: string) => {
+    const state = subscriptions[marketId]
+    if (!isWebSocketConnected) {
+      return <WifiOff className="h-3 w-3 text-red-500" />
+    }
+    if (!state) {
+      return <AlertCircle className="h-3 w-3 text-yellow-500" />
+    }
+    if (state.status === 'connected' || state.status === 'receiving_data') {
+      return <Wifi className="h-3 w-3 text-green-500" />
+    }
+    return <AlertCircle className="h-3 w-3 text-yellow-500" />
+  }
+
+  const getConnectionStatus = (marketId: string) => {
+    if (!isWebSocketConnected) return "WebSocket disconnected"
+    const state = subscriptions[marketId]
+    if (!state) return "Unknown"
+    return state.status
+  }
+  
+  const unsubscribeFromMarket = async (marketId: string) => {
+    try {
+      // Remove from local storage
+      const selectedTokens = await marketSearchService.getSelectedTokens()
+      const updatedTokens = Object.fromEntries(
+        Object.entries(selectedTokens).filter(([_, token]: [string, any]) => token.marketId !== marketId)
+      )
+      
+      // Update the cache with filtered tokens
+      const cache = await marketSearchService.getMarketCache()
+      cache.selectedTokens = updatedTokens
+      
+      // Update local state
+      setSubscribedMarkets(prev => prev.filter(market => market.id !== marketId))
+      
+      console.log(`Unsubscribed from market: ${marketId}`)
+    } catch (error) {
+      console.error('Error unsubscribing from market:', error)
+    }
+  }
+  
+  const setActiveMarkets = (markets: Market[]) => {
+    // TODO: Implement active market selection logic
+    console.log('Setting active markets:', markets)
+  }
 
   if (subscribedMarkets.length === 0) {
     return (
@@ -39,6 +115,10 @@ export function SubscribedMarkets() {
                     <Badge variant={market.platform === "polymarket" ? "default" : "secondary"} className="text-xs">
                       {market.platform}
                     </Badge>
+                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                      {getConnectionIcon(market.id)}
+                      <span>{getConnectionStatus(market.id)}</span>
+                    </div>
                   </div>
                 </div>
                 <div className="flex gap-1">

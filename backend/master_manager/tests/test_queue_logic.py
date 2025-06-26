@@ -11,8 +11,8 @@ import os
 # Add the current directory to Python path for imports
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from kalshi_queue import KalshiQueue
-from polymarket_queue import PolymarketQueue
+from backend.master_manager.kalshi_client.kalshi_queue import KalshiQueue
+from backend.master_manager.polymarket_client.polymarket_queue import PolymarketQueue
 
 async def test_kalshi_queue():
     """Test Kalshi queue processing"""

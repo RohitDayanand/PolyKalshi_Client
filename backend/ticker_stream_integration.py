@@ -47,6 +47,7 @@ class TickerStreamPublisher:
             return
         
         ticker_data = {
+            "type": "ticker_update",  # Add type field for frontend compatibility
             "market_id": market_id,
             "platform": platform,
             "summary_stats": summary_stats,

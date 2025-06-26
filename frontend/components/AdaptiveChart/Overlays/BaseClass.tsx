@@ -31,9 +31,10 @@ import { IChartApi, ISeriesApi, UTCTimestamp } from 'lightweight-charts'
 import { SeriesType, SeriesClassConstructorOptions, MarketDataUpdate, MarketDataPoint } from '../../../lib/chart-types'
 import { useMarketSubscriptionState } from '../hooks/useMarketSubscriptionState'
 import { useChartRangeState } from '../hooks/useChartRangeState'
-import { marketDataEmitter } from '../../../lib/market-data-emitter'
-import type { TimeRange } from '../../../lib/chart-types'
+import { rxjsChannelManager } from '../../../lib/RxJSChannelManager'
+import type { TimeRange, MarketSide, ChannelMessage, DataPoint } from '../../../lib/RxJSChannelManager'
 import { getVisibleRangeStart, toUtcTimestamp } from '../../../lib/time-horizontalscale'
+import { Subscription } from 'rxjs'
 
 export default abstract class SeriesClass {
   // Core properties from your requirements
@@ -43,10 +44,13 @@ export default abstract class SeriesClass {
   protected chartInstance: IChartApi
   protected seriesApi: ISeriesApi<any> | null
   protected subscriptionId: string | null
-  private dataHandler: ((data: MarketDataUpdate) => void) | null = null
-  private unsubscribeFunction: (() => void) | null = null // Store teardown function
+  private rxjsSubscription: Subscription | null = null
   private isSubscribed: boolean = false // Track subscription state
   private isRemoved: boolean = false // Track removal state to prevent double removal
+  
+  // New properties for RxJS channel manager
+  protected marketId: string | null = null
+  protected currentTimeRange: TimeRange = '1D'
   
   constructor(options: SeriesClassConstructorOptions) {
     this.seriesType = options.seriesType
@@ -123,110 +127,91 @@ export default abstract class SeriesClass {
   }
 
   // Subscription management - implemented in base class
-  async subscribe(subscriptionId: string): Promise<void> {
+  async subscribe(marketId: string, side: MarketSide, timeRange: TimeRange): Promise<void> {
     try {
-      this.subscriptionId = subscriptionId
+      this.marketId = marketId
+      this.currentTimeRange = timeRange
       
       // Check if subclass has overridden onSubscribed with custom logic
       const hasCustomSubscription = this.onSubscribed !== SeriesClass.prototype.onSubscribed
       
       if (!hasCustomSubscription) {
         // Use base class market data handling for default implementation
-        await this.subscribeToMarketData(subscriptionId)
+        await this.subscribeToRxJSChannel(marketId, side, timeRange)
       }
       
-      console.log(`✅ SeriesClass - Subscribed ${this.seriesType} to: ${subscriptionId}`)
+      console.log(`✅ SeriesClass - Subscribed ${this.seriesType} to: ${marketId}&${side}&${timeRange}`)
       
       // Call subclass-specific subscription hook
-      await this.onSubscribed(subscriptionId)
+      await this.onSubscribed(marketId)
     } catch (error) {
-      console.error(`❌ SeriesClass - Failed to subscribe ${this.seriesType} to: ${subscriptionId}`, error)
+      console.error(`❌ SeriesClass - Failed to subscribe ${this.seriesType} to: ${marketId}`, error)
       this.onError(`Subscription failed: ${error}`)
     }
   }
 
   /**
-   * PURE BROADCAST: Common market data subscription using pure event filtering
-   * Uses teardown function pattern for proper cleanup
+   * Subscribe to RxJS channel manager using marketId&side&range format
    */
-  private async subscribeToMarketData(subscriptionId: string): Promise<void> {
+  private async subscribeToRxJSChannel(marketId: string, side: MarketSide, timeRange: TimeRange): Promise<void> {
     if (this.isSubscribed) {
-      console.warn(`⚠️ ${this.seriesType} already subscribed to market data`)
+      console.warn(`⚠️ ${this.seriesType} already subscribed to RxJS channel`)
       return
     }
 
-    // Set up event listener that filters by subscription ID
-    const dataHandler = (updateData: MarketDataUpdate) => {
-      // Only process data for our subscription ID
-      if (updateData.subscriptionId !== subscriptionId) {
-        return // Skip events for other subscriptions
-      }
-      
-      if (!this.seriesApi) {
-        console.log(`⏭️ BaseClass ${this.seriesType} - Skipping event (no series API available)`)
-        return
-      }
-
-      try {
-        if (updateData.type === 'initial') {
-          // Handle initial data array with setData() for full dataset
-          const initialData = updateData.data as MarketDataPoint[]
-          console.log(`📊 BaseClass ${this.seriesType} - Received ${initialData.length} initial data points for ${subscriptionId}`)
-          
-          // Use common updateData method
-          this.updateData(initialData.map(point => ({
-            time: point.time as any,
-            value: point.value
-          })))
-          console.log(`✅ BaseClass ${this.seriesType} - Loaded initial dataset successfully`)
-          
-        } else if (updateData.type === 'update') {
-          // Handle single update with update() for performance  
-          const updatePoint = updateData.data as MarketDataPoint
-          console.log(`📈 BaseClass ${this.seriesType} - Received real-time update:`, updatePoint)
-          
-          // Use common appendData method
-          this.appendData({
-            time: updatePoint.time as any,
-            value: updatePoint.value
-          })
-          
-        }
-      } catch (error) {
-        console.error(`❌ BaseClass ${this.seriesType} - Error processing market data:`, error)
-        this.onError(`Market data processing failed: ${error}`)
-      }
-    }
-
-    // Store the handler for cleanup
-    this.dataHandler = dataHandler
-
-    // Subscribe to global market data events (pure broadcast)
-    marketDataEmitter.on('market-data', dataHandler)
-    
-    // Subscribe to the market data feed to start receiving data
-    // This returns a teardown function for proper cleanup
     try {
-      const subscriptionConfig = {
-        id: subscriptionId,
-        updateFrequency: 1000, // 1 second updates
-        historyLimit: 1000     // Keep 1000 points in cache
-      }
+      // Subscribe to the RxJS channel manager
+      const channelObservable = rxjsChannelManager.subscribe(marketId, side, timeRange)
       
-      console.log(`🚀 BaseClass ${this.seriesType} - Starting market data subscription:`, subscriptionConfig)
+      this.rxjsSubscription = channelObservable.subscribe({
+        next: (channelMessage: ChannelMessage) => {
+          if (!this.seriesApi) {
+            console.log(`⏭️ BaseClass ${this.seriesType} - Skipping event (no series API available)`)
+            return
+          }
+
+          try {
+            if (channelMessage.updateType === 'initial_data') {
+              // Handle initial data array with setData() for full dataset
+              const initialData = channelMessage.data as DataPoint[]
+              console.log(`📊 BaseClass ${this.seriesType} - Received ${initialData.length} initial data points for ${channelMessage.channel}`)
+              
+              // Convert DataPoint to chart format and use common updateData method
+              this.updateData(initialData.map(point => ({
+                time: point.time as any,
+                value: point.value
+              })))
+              console.log(`✅ BaseClass ${this.seriesType} - Loaded initial dataset successfully`)
+              
+            } else if (channelMessage.updateType === 'update') {
+              // Handle single update with update() for performance  
+              const updatePoint = channelMessage.data as DataPoint
+              console.log(`📈 BaseClass ${this.seriesType} - Received real-time update:`, updatePoint)
+              
+              // Use common appendData method
+              this.appendData({
+                time: updatePoint.time as any,
+                value: updatePoint.value
+              })
+            }
+          } catch (error) {
+            console.error(`❌ BaseClass ${this.seriesType} - Error processing RxJS channel data:`, error)
+            this.onError(`RxJS channel data processing failed: ${error}`)
+          }
+        },
+        error: (error) => {
+          console.error(`❌ BaseClass ${this.seriesType} - RxJS subscription error:`, error)
+          this.onError(`RxJS subscription failed: ${error}`)
+        }
+      })
       
-      // Store the teardown function for proper cleanup
-      this.unsubscribeFunction = marketDataEmitter.subscribe(subscriptionConfig)
       this.isSubscribed = true
-      
-      console.log(`✅ BaseClass ${this.seriesType} - Market data subscription started for ${subscriptionId}`)
+      console.log(`✅ BaseClass ${this.seriesType} - Subscribed to RxJS channel: ${marketId}&${side}&${timeRange}`)
       
     } catch (error) {
-      console.error(`❌ BaseClass ${this.seriesType} - Failed to subscribe to market data emitter:`, error)
-      this.onError(`Market data emitter subscription failed: ${error}`)
+      console.error(`❌ BaseClass ${this.seriesType} - Failed to subscribe to RxJS channel:`, error)
+      this.onError(`RxJS channel subscription failed: ${error}`)
     }
-    
-    console.log(`🔗 BaseClass ${this.seriesType} - Subscribed to market data: ${subscriptionId}`)
   }
 
   unsubscribe(): void {

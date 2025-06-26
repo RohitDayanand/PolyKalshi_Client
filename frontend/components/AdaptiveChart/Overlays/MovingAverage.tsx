@@ -56,9 +56,30 @@ export class MovingAverage extends SeriesClass {
       console.log(`✅ SeriesClass - Created ${this.seriesType} series with subscription ID: ${this.subscriptionId}`)
       
       // Auto-subscribe to market data if subscription ID exists
-      // Note: Subclasses can override onSubscribed to handle their own subscription logic
+      // Parse subscription ID to extract marketId, side, and timeRange
       if (this.subscriptionId) {
-        this.subscribe(this.subscriptionId)
+        console.log(`🔗 MovingAverage - Attempting subscription with ID: ${this.subscriptionId}`)
+        
+        // Parse subscription ID format: "seriesType_timeRange_marketId"
+        const subscriptionParts = this.subscriptionId.split('_')
+        if (subscriptionParts.length >= 3) {
+          const [seriesTypeStr, timeRange, marketId] = subscriptionParts
+          const side = seriesTypeStr.toLowerCase() as 'yes' | 'no'
+          
+          console.log(`📊 MovingAverage - Parsed subscription details:`, {
+            subscriptionId: this.subscriptionId,
+            marketId,
+            side,
+            timeRange,
+            seriesType: this.seriesType
+          })
+          
+          this.subscribe(marketId, side, timeRange as any)
+        } else {
+          console.error(`❌ MovingAverage - Invalid subscription ID format: ${this.subscriptionId}`)
+        }
+      } else {
+        console.warn(`⚠️ MovingAverage - No subscription ID provided for ${this.seriesType} series`)
       }
     } catch (error) {
       console.error(`❌ SeriesClass - Failed to create ${this.seriesType} series:`, error)

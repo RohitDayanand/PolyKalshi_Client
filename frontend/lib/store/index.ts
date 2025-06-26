@@ -5,6 +5,10 @@ import chartFullscreenReducer from './chartFullscreenSlice'
 import chartInstanceReducer from './chartInstanceSlice'
 import marketSubscriptionReducer from './marketSubscriptionSlice'
 import overlayReducer from './overlaySlice'
+import websocketReducer from './websocketSlice'
+import apiSubscriptionReducer from './apiSubscriptionSlice'
+import { websocketMiddleware, initializeWebSocket } from './websocketMiddleware'
+import { rxjsSubscriptionMiddleware } from './rxjsSubscriptionMiddleware'
 
 // Known chart instances for dual market visualization
 const KNOWN_CHART_IDS = ['market-1', 'market-2', 'comparison'] as const
@@ -65,10 +69,17 @@ export const store = configureStore({
     chartFullscreen: chartFullscreenReducer,
     chartInstance: chartInstanceReducer,
     marketSubscription: marketSubscriptionReducer,
-    overlay: overlayReducer
+    overlay: overlayReducer,
+    websocket: websocketReducer,
+    apiSubscription: apiSubscriptionReducer
   },
+  middleware: (getDefaultMiddleware) =>
+    getDefaultMiddleware().concat(websocketMiddleware, rxjsSubscriptionMiddleware),
   preloadedState: createPreloadedState()
 })
 
 export type RootState = ReturnType<typeof store.getState>
 export type AppDispatch = typeof store.dispatch
+
+// Initialize WebSocket connection
+initializeWebSocket(store)

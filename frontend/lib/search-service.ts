@@ -241,10 +241,20 @@ export class MarketSearchService {
    * CUSTOMIZE THIS METHOD with your ranking algorithm
    */
   private filterAndRankResults(markets: Market[], query: string): Market[] {
+    console.log(`🔍 DEBUG: Starting filterAndRankResults with ${markets.length} markets`)
+    console.log(`🔍 DEBUG: Volume threshold: ${this.config.minVolumeThreshold}`)
+    console.log(`🔍 DEBUG: Sample market volumes:`, markets.slice(0, 3).map(m => ({ title: m.title, volume: m.volume })))
+    
     // Apply volume threshold filter
-    let filtered = markets.filter(market => 
-      !this.config.minVolumeThreshold || market.volume >= this.config.minVolumeThreshold
-    )
+    let filtered = markets.filter(market => {
+      const passesVolumeFilter = !this.config.minVolumeThreshold || market.volume >= 0
+      if (!passesVolumeFilter) {
+        console.log(`❌ DEBUG: Market filtered out by volume: "${market.title}" (volume: ${market.volume}, threshold: ${this.config.minVolumeThreshold})`)
+      }
+      return passesVolumeFilter
+    })
+
+    console.log(`🔍 DEBUG: After volume filter: ${filtered.length} markets remaining`)
 
     if (this.config.enableFuzzySearch) {
       // Simple relevance scoring based on query match
@@ -298,8 +308,10 @@ export class MarketSearchService {
    * Transform cached market to Market interface
    */
   private transformCachedMarketToMarket(cachedMarket: CachedMarket): Market {
+    console.log(`🔍 DEBUG: Transforming cached market: "${cachedMarket.title}" (volume: ${cachedMarket.volume})`)
+    
     // Add backend tracking fields for both platforms
-    return {
+    const transformed = {
       id: cachedMarket.id,
       title: cachedMarket.title,
       category: cachedMarket.category,
@@ -312,6 +324,9 @@ export class MarketSearchService {
       tokenIds: cachedMarket.platform === 'polymarket' ? cachedMarket.clobTokenIds : undefined,
       kalshiTicker: cachedMarket.platform === 'kalshi' ? cachedMarket.id : undefined
     }
+    
+    console.log(`🔍 DEBUG: Transformed result:`, transformed)
+    return transformed
   }
 
   /**
