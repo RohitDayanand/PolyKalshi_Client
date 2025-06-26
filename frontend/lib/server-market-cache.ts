@@ -233,15 +233,24 @@ export class ServerMarketCache {
   async fetchKalshiMarkets(): Promise<CachedMarket[]> {
     const allMarkets: CachedMarket[] = []
     let cursor: string | null = null
-    const maxMarkets = 2500 // Half of our 5000 target
-    const batchSize = 500 // Kalshi API limit per request
+    const maxMarkets = 5000 // Increased from 2500 to get more markets
+    const batchSize = 200 // Reduced from 500 to be more conservative and get faster responses
     
     try {
       console.log(`🔄 Starting Kalshi pagination (target: ${maxMarkets} markets)`)
       
       while (allMarkets.length < maxMarkets) {
-        // Build URL with cursor pagination
-        let url = `https://api.elections.kalshi.com/trade-api/v2/markets?status=open&limit=${batchSize}`
+        // Build URL with improved filtering for active markets
+        let url = `https://api.elections.kalshi.com/trade-api/v2/markets?limit=${batchSize}`
+        
+        // Add status filter - get open markets and those that can still be traded
+        url += `&status=open`
+        
+        // Add date filters to exclude markets that are about to close or have closed
+        const nowTimestamp = Math.floor(Date.now() / 1000) // Current time as pure integer (Unix timestamp)
+        url += `&min_close_ts=${nowTimestamp}` // Only markets closing after current time
+        
+        // Add cursor for pagination
         if (cursor) {
           url += `&cursor=${encodeURIComponent(cursor)}`
         }
@@ -306,6 +315,9 @@ export class ServerMarketCache {
    * Transform Kalshi API response to our cached market format
    */
   private transformKalshiApiResponse(apiData: any): CachedMarket[] {
+    console.log('🔍 DEBUG: Sample Kalshi market data:', apiData.markets?.[0])
+    console.log('🔍 DEBUG: Available fields:', apiData.markets?.[0] ? Object.keys(apiData.markets[0]) : 'No markets')
+    
     const markets: CachedMarket[] = []
     const marketsList = apiData.markets || apiData.data || apiData || []
     
@@ -324,6 +336,14 @@ export class ServerMarketCache {
           lastUpdated: new Date().toISOString(),
           platform: 'kalshi'
         })
+        
+        // Debug volume calculation for first few markets
+        if (markets.length <= 3) {
+          console.log(`🔍 DEBUG: Market "${market.title || market.ticker}"`)
+          console.log(`  - market.volume: ${market.volume}`)
+          console.log(`  - market.dollar_volume: ${market.dollar_volume}`)
+          console.log(`  - Final volume: ${this.parseNumber(market.volume) || this.parseNumber(market.dollar_volume) || 0}`)
+        }
       }
     }
 

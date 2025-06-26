@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { useMarketContext } from "@/context/market-context"
+import { useMarketSubscription } from "@/lib/store/marketSubscriptionHooks"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -18,7 +18,42 @@ interface MarketListProps {
 export function MarketList({ platform }: MarketListProps) {
   const [query, setQuery] = useState("")
   const [selectedMarkets, setSelectedMarkets] = useState<Set<string>>(new Set())
-  const { searchResults, subscribeToMarket, searchMarkets } = useMarketContext()
+  const { subscribeToMarket } = useMarketSubscription()
+  
+  // Keep existing search functionality - only replace subscription logic
+  const [searchResults, setSearchResults] = useState<{
+    polymarket: Market[]
+    kalshi: Market[]  
+    loading: boolean
+  }>({
+    polymarket: [],
+    kalshi: [],
+    loading: false
+  })
+  
+  // Keep existing search implementation
+  const searchMarkets = async (platform: "polymarket" | "kalshi", query: string) => {
+    setSearchResults(prev => ({ ...prev, loading: true }))
+    
+    try {
+      const response = await fetch(`/api/search?platform=${platform}&query=${encodeURIComponent(query)}`)
+      const data = await response.json()
+      
+      if (data.success) {
+        setSearchResults(prev => ({
+          ...prev,
+          [platform]: data.data,
+          loading: false,
+        }))
+      } else {
+        console.error('Search failed:', data.error)
+        setSearchResults(prev => ({ ...prev, loading: false }))
+      }
+    } catch (error) {
+      console.error('Search API error:', error)
+      setSearchResults(prev => ({ ...prev, loading: false }))
+    }
+  }
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault()

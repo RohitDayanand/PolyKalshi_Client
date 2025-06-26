@@ -129,35 +129,44 @@ class KalshiTickerPublisher:
             
             self.stats["active_markets"] = len(all_stats)
             
+            logger.debug(f"📡 KALSHI PUBLISHER: Retrieved {len(all_stats)} markets from processor")
+            
             if not all_stats:
-                logger.debug("No active Kalshi markets to publish")
+                logger.debug("📡 KALSHI PUBLISHER: No active Kalshi markets to publish")
                 return
             
             published_count = 0
             
             for sid, summary_stats in all_stats.items():
                 try:
+                    logger.debug(f"📡 KALSHI PUBLISHER: Processing sid={sid}, stats={summary_stats}")
+                    
                     # Check rate limiting per market
                     last_publish = self.last_publish_times.get(sid, 0)
                     time_since_last = current_time - last_publish
                     
                     if time_since_last < self.publish_interval:
                         self.stats["rate_limited"] += 1
+                        logger.debug(f"📡 KALSHI PUBLISHER: Rate limited sid={sid} (last: {time_since_last:.2f}s ago)")
                         continue
                     
                     # Get market info
                     orderbook = self.kalshi_processor.get_orderbook(sid)
                     if not orderbook or not orderbook.market_ticker:
-                        logger.debug(f"No market ticker for sid={sid}, skipping")
+                        logger.warning(f"📡 KALSHI PUBLISHER: No market ticker for sid={sid}, skipping")
                         continue
                     
                     # Validate data quality
                     if not self._is_valid_summary_stats(summary_stats):
-                        logger.debug(f"Invalid summary stats for sid={sid}, skipping")
+                        logger.warning(f"📡 KALSHI PUBLISHER: Invalid summary stats for sid={sid}: {summary_stats}")
                         continue
                     
-                    # Create market_id from ticker or use sid
-                    market_id = orderbook.market_ticker or f"kalshi_sid_{sid}"
+                    # Create market_id from ticker using the same format as the WebSocket API
+                    # This ensures frontend subscriptions match backend publications
+                    ticker = orderbook.market_ticker or f"sid_{sid}"
+                    market_id = f"kalshi_{ticker}"
+                    
+                    logger.info(f"📡 KALSHI PUBLISHER: Publishing sid={sid}, ticker={ticker}, market_id={market_id}, stats={summary_stats}")
                     
                     # Publish the update
                     await self._safe_publish(market_id, summary_stats)
@@ -168,63 +177,111 @@ class KalshiTickerPublisher:
                     self.stats["total_published"] += 1
                     
                 except Exception as e:
-                    logger.error(f"Error publishing market sid={sid}: {e}")
+                    logger.error(f"📡 KALSHI PUBLISHER: Error publishing market sid={sid}: {e}")
                     self.stats["failed_publishes"] += 1
             
             if published_count > 0:
-                logger.debug(f"Published {published_count} Kalshi market updates")
+                logger.info(f"📡 KALSHI PUBLISHER: Published {published_count} Kalshi market updates")
+            else:
+                logger.warning(f"📡 KALSHI PUBLISHER: No markets published out of {len(all_stats)} available")
                 
         except Exception as e:
-            logger.error(f"Error in _publish_all_markets: {e}")
+            logger.error(f"📡 KALSHI PUBLISHER: Error in _publish_all_markets: {e}")
     
     async def _safe_publish(self, market_id: str, summary_stats: Dict[str, Any]):
         """Safely publish ticker update with fire-and-forget approach (non-blocking)."""
         try:
+            logger.info(f"🚀 KALSHI PUBLISHER: Fire-and-forget publish for {market_id}: {summary_stats}")
             # Fire-and-forget: don't await, don't block orderbook processing
             publish_kalshi_update_nowait(market_id, summary_stats)
-            logger.debug(f"Scheduled ticker update for {market_id}")
+            logger.info(f"✅ KALSHI PUBLISHER: Scheduled ticker update for {market_id}")
             
         except Exception as e:
-            logger.error(f"Failed to schedule ticker update for {market_id}: {e}")
+            logger.error(f"❌ KALSHI PUBLISHER: Failed to schedule ticker update for {market_id}: {e}")
             self.stats["failed_publishes"] += 1
     
     def _is_valid_summary_stats(self, summary_stats: Dict[str, Any]) -> bool:
-        """Validate summary stats data quality."""
+        """
+        Validate summary stats data quality with improved error reporting.
+        
+        Expected format:
+        {
+            "yes": {"bid": float(0.0-1.0), "ask": float(0.0-1.0), "volume": float(>=0)},
+            "no": {"bid": float(0.0-1.0), "ask": float(0.0-1.0), "volume": float(>=0)}
+        }
+        """
         try:
-            # Check structure
+            # Check basic structure
             if not isinstance(summary_stats, dict):
+                logger.warning(f"📡 VALIDATION: Expected dict, got {type(summary_stats)}")
                 return False
             
             for side in ["yes", "no"]:
                 if side not in summary_stats:
+                    logger.warning(f"📡 VALIDATION: Missing '{side}' side in summary_stats")
                     return False
                 
                 side_data = summary_stats[side]
                 if not isinstance(side_data, dict):
+                    logger.warning(f"📡 VALIDATION: '{side}' side is not a dict, got {type(side_data)}")
                     return False
                 
                 # Check for required fields and valid values
                 for field in ["bid", "ask", "volume"]:
                     if field not in side_data:
+                        logger.warning(f"📡 VALIDATION: Missing field '{field}' in '{side}' side")
                         return False
                     
                     value = side_data[field]
                     if value is not None:
                         # Must be a number
                         if not isinstance(value, (int, float)):
+                            logger.warning(f"📡 VALIDATION: {side}.{field} is not numeric: {value} ({type(value)})")
                             return False
                         
-                        # Prices should be between 0 and 1
-                        if field in ["bid", "ask"] and not (0 <= value <= 1):
-                            return False
+                        # Prices should be between 0.0 and 1.0 (decimal probability format)
+                        if field in ["bid", "ask"]:
+                            if not (0.0 <= value <= 1.0):
+                                logger.warning(f"📡 VALIDATION: {side}.{field} out of range [0.0, 1.0]: {value}")
+                                return False
                         
                         # Volume should be non-negative
                         if field == "volume" and value < 0:
+                            logger.warning(f"📡 VALIDATION: {side}.{field} is negative: {value}")
                             return False
             
+            # Additional economic validation
+            yes_bid = summary_stats["yes"].get("bid")
+            yes_ask = summary_stats["yes"].get("ask") 
+            no_bid = summary_stats["no"].get("bid")
+            no_ask = summary_stats["no"].get("ask")
+            
+            # Check spreads are positive
+            if yes_bid is not None and yes_ask is not None:
+                yes_spread = yes_ask - yes_bid
+                if yes_spread < 0:
+                    logger.warning(f"📡 VALIDATION: Negative YES spread: bid={yes_bid}, ask={yes_ask}, spread={yes_spread}")
+                    return False
+            
+            if no_bid is not None and no_ask is not None:
+                no_spread = no_ask - no_bid
+                if no_spread < 0:
+                    logger.warning(f"📡 VALIDATION: Negative NO spread: bid={no_bid}, ask={no_ask}, spread={no_spread}")
+                    return False
+            
+            # Check economic consistency (no free arbitrage)
+            if yes_bid is not None and no_ask is not None:
+                complement_sum = yes_bid + no_ask
+                if complement_sum > 1.01:  # Allow small floating point tolerance
+                    logger.warning(f"📡 VALIDATION: Arbitrage opportunity detected: YES bid + NO ask = {complement_sum:.3f} > 1.0")
+                    return False
+            
+            logger.debug(f"📡 VALIDATION: Summary stats passed all checks: {summary_stats}")
             return True
             
-        except Exception:
+        except Exception as e:
+            logger.error(f"📡 VALIDATION: Exception during validation: {e}")
+            logger.debug(f"📡 VALIDATION: Failed data: {summary_stats}")
             return False
     
     def force_publish_market(self, sid: int) -> bool:

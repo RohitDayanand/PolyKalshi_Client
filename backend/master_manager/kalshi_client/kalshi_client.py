@@ -207,15 +207,23 @@ class KalshiClient:
         # Start the connection as a background task since it's long-running
         asyncio.create_task(self._connect_with_retry())
         
-        # Give connection time to establish
-        await asyncio.sleep(2)
+        # Wait for connection to establish with proper timeout and polling
+        max_wait_time = 10.0  # Maximum 10 seconds to wait
+        check_interval = 0.5  # Check every 500ms
+        elapsed_time = 0.0
         
-        if self.is_connected:
-            logger.info(f"Kalshi client started for ticker: {self.ticker}")
-            return True
-        else:
-            logger.error(f"Failed to start Kalshi client for ticker: {self.ticker}")
-            return False
+        logger.info(f"Waiting for Kalshi connection to establish (max {max_wait_time}s)...")
+        
+        while elapsed_time < max_wait_time:
+            if self.is_connected:
+                logger.info(f"Kalshi client connected successfully for ticker: {self.ticker} (took {elapsed_time:.1f}s)")
+                return True
+            
+            await asyncio.sleep(check_interval)
+            elapsed_time += check_interval
+        
+        logger.error(f"Failed to connect Kalshi client for ticker: {self.ticker} within {max_wait_time}s timeout")
+        return False
     
     async def addTicker(self, newTicker: str, connection_sid: int, tracker_id: int):
         """

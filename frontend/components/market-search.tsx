@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
-import { useMarketContext } from "@/context/market-context"
+import { useMarketSubscription } from "@/lib/store/marketSubscriptionHooks"
 import { marketSearchService } from "@/lib/search-service"
 import type { Market } from "@/types/market"
 
@@ -19,7 +19,42 @@ interface MarketSearchProps {
 export function MarketSearch({ platform }: MarketSearchProps) {
   const [query, setQuery] = useState("")
   const [selectedMarkets, setSelectedMarkets] = useState<Set<string>>(new Set())
-  const { searchMarkets, searchResults } = useMarketContext()
+  const { subscribeToMarket } = useMarketSubscription()
+  
+  // Local search state (copied from market-list.tsx)
+  const [searchResults, setSearchResults] = useState<{
+    polymarket: Market[]
+    kalshi: Market[]  
+    loading: boolean
+  }>({
+    polymarket: [],
+    kalshi: [],
+    loading: false
+  })
+  
+  // Local search implementation (copied from market-list.tsx)
+  const searchMarkets = async (platform: "polymarket" | "kalshi", query: string) => {
+    setSearchResults(prev => ({ ...prev, loading: true }))
+    
+    try {
+      const response = await fetch(`/api/search?platform=${platform}&query=${encodeURIComponent(query)}`)
+      const data = await response.json()
+      
+      if (data.success) {
+        setSearchResults(prev => ({
+          ...prev,
+          [platform]: data.data,
+          loading: false,
+        }))
+      } else {
+        console.error('Search failed:', data.error)
+        setSearchResults(prev => ({ ...prev, loading: false }))
+      }
+    } catch (error) {
+      console.error('Search API error:', error)
+      setSearchResults(prev => ({ ...prev, loading: false }))
+    }
+  }
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -30,7 +65,10 @@ export function MarketSearch({ platform }: MarketSearchProps) {
 
   const handleMarketSelect = async (market: Market) => {
     try {
-      // Get the full market data with token information
+      // First subscribe to the market for visualization
+      subscribeToMarket(platform, market)
+      
+      // Then get the full market data with token information for storage
       const fullMarket = await marketSearchService.getMarket(market.id)
       
       if (fullMarket && fullMarket.clobTokenIds && fullMarket.clobTokenIds.length > 0) {

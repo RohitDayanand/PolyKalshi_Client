@@ -21,7 +21,7 @@ from datetime import datetime, timedelta
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 try:
-    from kalshi_client_wrapper import (
+    from backend.master_manager.kalshi_client.kalshi_client_wrapper import (
         KalshiClient, 
         KalshiClientConfig, 
         Environment,

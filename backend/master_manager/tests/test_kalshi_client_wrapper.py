@@ -71,7 +71,7 @@ except ImportError:
     CRYPTO_AVAILABLE = False
 
 # Import the modules under test
-from kalshi_client_wrapper import (
+from backend.master_manager.kalshi_client.kalshi_client_wrapper import (
     KalshiClient, 
     KalshiClientConfig, 
     Environment,

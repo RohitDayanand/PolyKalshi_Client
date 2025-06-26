@@ -1,10 +1,25 @@
 import { createSlice, type PayloadAction } from '@reduxjs/toolkit'
+import { 
+  markWebSocketSubscribed,
+  updateSubscriptionStatus,
+  selectPendingWebSocketSubscriptions
+} from './apiSubscriptionSlice'
 
+// Updated to match our backend API message types
 export interface WebSocketMessage {
-  type: 'orderbook' | 'price_change' | 'tick_size_change' | 'connection' | 'error'
-  data: any
-  timestamp: string
-  marketId?: string
+  type: 'ticker_update' | 'connection_status' | 'subscription_confirmed' | 'error'
+  data?: any
+  timestamp: number
+  market_id?: string
+  platform?: string
+  summary_stats?: {
+    yes?: { bid: number; ask: number; volume: number }
+    no?: { bid: number; ask: number; volume: number }
+  }
+  status?: 'disconnected' | 'reconnecting' | 'stale' | 'connected'
+  message?: string
+  subscription?: string
+  retry_attempt?: number
 }
 
 export interface WebSocketState {
@@ -152,6 +167,41 @@ const websocketSlice = createSlice({
     resetReconnectAttempts: (state) => {
       state.reconnectAttempts = 0
     },
+
+    // New actions for our backend API integration
+    addTickerUpdate: (state, action: PayloadAction<WebSocketMessage>) => {
+      const message = {
+        ...action.payload,
+        timestamp: action.payload.timestamp || Date.now(),
+      }
+      
+      state.messages.push(message)
+      state.lastMessage = message
+      
+      // Keep only last 50 messages for UI display
+      if (state.messages.length > 50) {
+        state.messages = state.messages.slice(-50)
+      }
+    },
+
+    addConnectionStatus: (state, action: PayloadAction<WebSocketMessage>) => {
+      const message = {
+        ...action.payload,
+        timestamp: action.payload.timestamp || Date.now(),
+      }
+      
+      state.messages.push(message)
+      state.lastMessage = message
+      
+      if (state.messages.length > 50) {
+        state.messages = state.messages.slice(-50)
+      }
+    },
+
+    // Subscribe to market via WebSocket
+    subscribeToMarket: (state, action: PayloadAction<{marketId: string, platform: string}>) => {
+      // This will be handled by middleware
+    },
   },
 })
 
@@ -168,6 +218,9 @@ export const {
   clearMessages,
   clearError,
   resetReconnectAttempts,
+  addTickerUpdate,
+  addConnectionStatus,
+  subscribeToMarket,
 } = websocketSlice.actions
 
 export default websocketSlice.reducer
@@ -177,8 +230,11 @@ export const selectIsConnected = (state: any) => state.websocket.isConnected
 export const selectConnectionStatus = (state: any) => state.websocket.connectionStatus
 export const selectWebSocketError = (state: any) => state.websocket.error
 export const selectLastMessage = (state: any) => state.websocket.lastMessage
-export const selectRecentMessages = (state: any, count: number = 10) =>
-  state.websocket.messages.slice(-count)
+export const selectRecentMessages = (state: any, count: number = 10) => {
+  const messages = state.websocket.messages
+  if (messages.length <= count) return messages
+  return messages.slice(-count)
+}
 export const selectMessagesByMarket = (state: any, marketId: string) =>
   state.websocket.messages.filter((message: any) => message.marketId === marketId)
 export const selectMessagesByType = (state: any, type: WebSocketMessage['type']) =>

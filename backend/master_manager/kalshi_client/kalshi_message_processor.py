@@ -23,8 +23,9 @@ logger = logging.getLogger(__name__)
 @dataclass
 class OrderbookLevel:
     """Represents a single price level in the orderbook."""
-    price: str
-    size: str
+    price: int
+    size: int
+    side: str 
     
     @property
     def price_float(self) -> float:
@@ -35,87 +36,137 @@ class OrderbookLevel:
     def size_float(self) -> float:
         """Get size as float."""
         return float(self.size)
+    
+    def get_size(self) -> int:
+        """Get the current size of this orderbook level."""
+        return self.size
+    
+    def apply_delta(self, delta: int) -> None:
+        """Apply a size delta to this orderbook level with logging."""
+        old_size = self.size
+        self.size += delta
+        
+        # Conditional logging for debugging
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"📊 LEVEL DELTA: price={self.price}, side={self.side}, "
+                        f"old_size={old_size}, delta={delta}, new_size={self.size}")
+        
+        # Log warning if size goes negative (shouldn't happen in normal operation)
+        if self.size <= 0:
+            logger.warning(f"⚠️ NEGATIVE SIZE OR MINIMUM SIZE: price={self.price}, side={self.side}, "
+                          f"size={self.size} (delta={delta} applied to {old_size})")
+        
+        #return size to remove bad keys
+        return self.get_size()
+
+            #remove the key itself from the dictionary - can we do this? 
+
+
+
 
 @dataclass 
 class OrderbookState:
+    #need to add in the yes/no stub
     """Maintains the current state of an orderbook for a market."""
     sid: Optional[int] = None
     market_ticker: Optional[str] = None
-    bids: Dict[str, OrderbookLevel] = field(default_factory=dict)
-    asks: Dict[str, OrderbookLevel] = field(default_factory=dict)
+    yes_contracts: Dict[int, OrderbookLevel] = field(default_factory=dict)
+    no_contracts: Dict[int, OrderbookLevel] = field(default_factory=dict)
     last_seq: Optional[int] = None
     last_update_time: Optional[datetime] = None
     
     def apply_snapshot(self, snapshot_data: Dict[str, Any], seq: int, timestamp: datetime) -> None:
         """Apply a full orderbook snapshot, replacing current state."""
-        self.bids.clear()
-        self.asks.clear()
+        self.yes_contracts.clear()
+        self.no_contracts.clear()
         
-        # Process bids
-        for bid in snapshot_data.get('bids', []):
-            price = str(bid['price'])
-            self.bids[price] = OrderbookLevel(price=price, size=str(bid['size']))
+        # Process yes - Orderbooks in kalshi/polymarket work different
+
+        for price_level in snapshot_data['msg'].get('yes', []):
+            if len(price_level) < 2:
+                #print an error 
+                print("We are processing the wrong order shape - there is some empty price level and kalshi has not updated it. Line 88 in kalshi message processor")
+            else:
+                price = int(price_level[0])
+                size = int(price_level[1])
+                self.yes_contracts[price] = OrderbookLevel(price=price, size=size, side="Yes")
         
-        # Process asks  
-        for ask in snapshot_data.get('asks', []):
-            price = str(ask['price'])
-            self.asks[price] = OrderbookLevel(price=price, size=str(ask['size']))
+        # Process Nos -Orderbooks in 
+        
+        for price_level in snapshot_data['msg'].get('no', []):
+                if len(price_level) < 2:
+                    #print an error 
+                    print("Erorr occured here")
+                else:
+                    price = int(price_level[0])
+                    size = int(price_level[1])
+                    self.no_contracts[price] = OrderbookLevel(price=price, size=size, side="No")
             
         self.last_seq = seq
         self.last_update_time = timestamp
-        logger.debug(f"Applied snapshot for sid={self.sid}, seq={seq}, bids={len(self.bids)}, asks={len(self.asks)}")
+        logger.debug(f"Applied snapshot for sid={self.sid}, seq={seq}, bids={len(self.yes_contracts)}, asks={len(self.no_contracts)}")
     
     def apply_delta(self, delta_data: Dict[str, Any], seq: int, timestamp: datetime) -> None:
         """Apply incremental orderbook changes."""
-        # Process bid changes
-        for bid in delta_data.get('bids', []):
-            price = str(bid['price'])
-            size = str(bid['size'])
-            
-            if size == '0' or float(size) == 0:
-                # Remove level
-                self.bids.pop(price, None)
+        # Process change and decide which side it is, and check if it's a new orderbook level
+
+        if delta_data["msg"].get("side", "") == "yes":
+            #if price level already exists, the
+            price_level = int(delta_data["msg"].get("price", 0))
+            delta = int(delta_data["msg"].get("delta", 0))
+            if price_level in self.yes_contracts:
+                new_size = self.yes_contracts[price_level].apply_delta(delta)
+                self.yes_contracts.pop(price_level, "") if new_size <= 0 else None
             else:
-                # Update/add level
-                self.bids[price] = OrderbookLevel(price=price, size=size)
-        
-        # Process ask changes
-        for ask in delta_data.get('asks', []):
-            price = str(ask['price'])
-            size = str(ask['size'])
-            
-            if size == '0' or float(size) == 0:
-                # Remove level
-                self.asks.pop(price, None)
+                self.yes_contracts[price_level] = OrderbookLevel(price = price_level, size = delta, side = "Yes")
+        else:
+            price_level = int(delta_data["msg"].get("price", 0))
+            delta = int(delta_data["msg"].get("delta", 0))
+
+            if price_level in self.no_contracts:
+                new_size = self.no_contracts[price_level].apply_delta(delta)
+                self.no_contracts.pop(price_level, "") if new_size <= 0 else None
             else:
-                # Update/add level
-                self.asks[price] = OrderbookLevel(price=price, size=size)
+                self.no_contracts[price_level] = OrderbookLevel(price = price_level, size = delta, side = "No")
+            #update the orderbook
                 
         self.last_seq = seq
         self.last_update_time = timestamp
-        logger.debug(f"Applied delta for sid={self.sid}, seq={seq}, bids={len(self.bids)}, asks={len(self.asks)}")
+        logger.debug(f"Applied delta for sid={self.sid}, seq={seq}, yes={len(self.yes_contracts)}, no={len(self.no_contracts)}")
     
-    def get_best_bid(self) -> Optional[OrderbookLevel]:
+    #Get the current market price of buying 
+    def get_yes_market_bid(self) -> int:
         """Get the highest bid (best bid price)."""
-        if not self.bids:
+        if not self.yes_contracts or len(self.yes_contracts) <= 0:
             return None
-        best_price = max(self.bids.keys(), key=lambda x: float(x))
-        return self.bids[best_price]
+         
+        #this is an O(n) operation - price levels are limited (~50) so it's mostly constant, but need to consider other approaches
+        #We assume that if any orderbook level delta goes below 0, we remove that orderbook level otherwise this max calculation 
+        #will NOT work
+
+        return max(self.yes_contracts.keys(), key=lambda x: int(x))
+        
     
-    def get_best_ask(self) -> Optional[OrderbookLevel]:
-        """Get the lowest ask (best ask price)."""
-        if not self.asks:
+    def get_no_market_bid(self) -> int:
+        """Get the highest bid (best bid price)."""
+        if not self.no_contracts or len(self.no_contracts) <= 0:
+            #that means there is no market here - it's aalready resovled
             return None
-        best_price = min(self.asks.keys(), key=lambda x: float(x))
-        return self.asks[best_price]
+        
+        #this is an O(n) operation - price levels are limited (~50) so it's mostly constant, but need to consider other approaches
+        #We assume that if any orderbook level delta goes below 0, we remove that orderbook level otherwise this max calculation 
+        #will NOT work
+
+        return max(self.no_contracts.keys(), key=lambda x: int(x))
     
     def get_total_bid_volume(self) -> float:
         """Calculate total volume on bid side."""
-        return sum(level.size_float for level in self.bids.values())
+        #@TODO - implement actual volume logic
+        return sum(level.size_float for level in self.yes_contracts.values())
     
     def get_total_ask_volume(self) -> float:
         """Calculate total volume on ask side."""
-        return sum(level.size_float for level in self.asks.values())
+        return sum(level.size_float for level in self.no_contracts.values())
     
     def calculate_yes_no_prices(self) -> Dict[str, Dict[str, Optional[float]]]:
         """
@@ -133,26 +184,68 @@ class OrderbookState:
                 "no": {"bid": float, "ask": float, "volume": float}
             }
         """
-        best_bid = self.get_best_bid()
-        best_ask = self.get_best_ask()
+        #represents market bid for buying yes contract (selling no contract)
+        market_yes = self.get_yes_market_bid()
+
+        #represents market bid for buying no contract (selling yes contract)
+        market_no = self.get_no_market_bid()
+        
+        # Debug logging for bid/ask calculation
+        logger.debug(f"🧮 BID/ASK CALC: sid={self.sid}, ticker={self.market_ticker}")
+        #redo the logger debugging
+        
+        # @TODO volume needs to be computed correctly
+        bid_volume = self.get_total_bid_volume()
+        ask_volume = self.get_total_ask_volume()
+        total_volume = bid_volume + ask_volume
+        
+        logger.debug(f"  - Bid volume: {bid_volume}, Ask volume: {ask_volume}, Total: {total_volume}")
+        
+        # Convert cent prices to decimal probabilities (0.0-1.0 format)
+        # This ensures compatibility with ticker publisher validation and downstream systems
+        yes_bid_decimal = market_yes / 100.0 if market_yes is not None else None
+        yes_ask_decimal = (100 - market_no) / 100.0 if market_no is not None else None
+        no_bid_decimal = market_no / 100.0 if market_no is not None else None 
+        no_ask_decimal = (100 - market_yes) / 100.0 if market_yes is not None else None
         
         yes_data = {
-            "bid": best_bid.price_float if best_bid else None,
-            "ask": best_ask.price_float if best_ask else None,
-            "volume": self.get_total_bid_volume() + self.get_total_ask_volume()
+            "bid": yes_bid_decimal,
+            "ask": yes_ask_decimal,
+            "volume": total_volume
         }
         
-        # Calculate NO prices as inverse of YES prices
+        # Calculate NO prices as inverse of YES prices (in decimal format)
         no_data = {
-            "bid": (1.0 - best_ask.price_float) if best_ask else None,
-            "ask": (1.0 - best_bid.price_float) if best_bid else None, 
-            "volume": self.get_total_bid_volume() + self.get_total_ask_volume()
+            "bid": no_bid_decimal,
+            "ask": no_ask_decimal, 
+            "volume": total_volume
         }
         
-        return {
+        # Log the conversion for debugging
+        logger.debug(f"  - Price conversion: YES {market_yes}¢→{yes_bid_decimal:.3f}, NO {market_no}¢→{no_bid_decimal:.3f}")
+        logger.debug(f"  - Complement check: YES ask={yes_ask_decimal:.3f}, NO ask={no_ask_decimal:.3f}")
+        
+        # Economic validation (should sum to 1.0 in decimal format)
+        if yes_bid_decimal is not None and no_ask_decimal is not None:
+            complement_sum = yes_bid_decimal + no_ask_decimal
+            logger.debug(f"  - Economic check: {yes_bid_decimal:.3f} + {no_ask_decimal:.3f} = {complement_sum:.3f}")
+            if complement_sum > 1.01:  # Allow small floating point tolerance
+                logger.warning(f"⚠️ ECONOMIC WARNING: YES bid + NO ask = {complement_sum:.3f} > 1.0 (potential arbitrage)")
+        
+        if yes_ask_decimal is not None and no_bid_decimal is not None:
+            spread_sum = yes_ask_decimal + no_bid_decimal  
+            logger.debug(f"  - Spread check: {yes_ask_decimal:.3f} + {no_bid_decimal:.3f} = {spread_sum:.3f}")
+            if spread_sum < 0.99:  # Should be close to 1.0
+                logger.warning(f"⚠️ SPREAD WARNING: YES ask + NO bid = {spread_sum:.3f} < 1.0 (unusual spread)")
+        
+        result = {
             "yes": yes_data,
             "no": no_data
         }
+        
+        logger.debug(f"  - Calculated result: {result}")
+        
+        return result
 
 class KalshiMessageProcessor:
     """
@@ -167,6 +260,10 @@ class KalshiMessageProcessor:
         self.error_callback: Optional[Callable[[Dict[str, Any]], None]] = None
         self.orderbook_update_callback: Optional[Callable[[int, OrderbookState], None]] = None
         
+        # Start periodic logging task
+        self.logging_task: Optional[asyncio.Task] = None
+        self.start_periodic_logging()
+        
         logger.info("KalshiMessageProcessor initialized")
     
     def set_error_callback(self, callback: Callable[[Dict[str, Any]], None]) -> None:
@@ -179,6 +276,72 @@ class KalshiMessageProcessor:
         self.orderbook_update_callback = callback
         logger.info("Kalshi orderbook update callback set")
     
+    def start_periodic_logging(self):
+        """Start background task for periodic orderbook state logging."""
+        if self.logging_task is None or self.logging_task.done():
+            self.logging_task = asyncio.create_task(self._periodic_logging_loop())
+            logger.info("Started periodic orderbook logging (every 10 seconds)")
+    
+    def stop_periodic_logging(self):
+        """Stop the periodic logging task."""
+        if self.logging_task and not self.logging_task.done():
+            self.logging_task.cancel()
+            logger.info("Stopped periodic orderbook logging")
+    
+    async def _periodic_logging_loop(self):
+        """Background loop that logs orderbook state every 10 seconds."""
+        while True:
+            try:
+                await asyncio.sleep(10)  # Log every 10 seconds
+                await self._log_orderbook_state()
+            except asyncio.CancelledError:
+                logger.info("Periodic logging loop cancelled")
+                break
+            except Exception as e:
+                logger.error(f"Error in periodic logging loop: {e}")
+    
+    async def _log_orderbook_state(self):
+        """Log current orderbook state for debugging bid/ask calculations."""
+        try:
+            if not self.orderbooks:
+                logger.info("🔍 ORDERBOOK DEBUG: No active Kalshi markets")
+                return
+            
+            logger.info(f"🔍 ORDERBOOK DEBUG: {len(self.orderbooks)} active Kalshi markets")
+            
+            for sid, orderbook in self.orderbooks.items():
+                # Log basic orderbook info
+                bid_count = len(orderbook.yes_contracts)
+                ask_count = len(orderbook.no_contracts)
+                best_bid = orderbook.get_best_bid()
+                best_ask = orderbook.get_best_ask()
+                
+                logger.info(f"🔍 ORDERBOOK DEBUG: sid={sid}, ticker={orderbook.market_ticker}")
+                logger.info(f"  - Bids: {bid_count} levels, Best bid: {best_bid.price if best_bid else 'None'}")
+                logger.info(f"  - Asks: {ask_count} levels, Best ask: {best_ask.price if best_ask else 'None'}")
+                logger.info(f"  - Last seq: {orderbook.last_seq}, Last update: {orderbook.last_update_time}")
+                
+                # Log bid/ask calculation results
+                summary_stats = orderbook.calculate_yes_no_prices()
+                logger.info(f"  - Summary stats: {summary_stats}")
+                
+                # Log top 3 bid/ask levels for detailed debugging
+                if orderbook.yes_contracts:
+                    sorted_bids = sorted(orderbook.yes_contracts.items(), key=lambda x: float(x[0]), reverse=True)[:3]
+                    logger.info(f"  - Top 3 bids: {[(price, level.size) for price, level in sorted_bids]}")
+                
+                if orderbook.no_contracts:
+                    sorted_asks = sorted(orderbook.no_contracts.items(), key=lambda x: float(x[0]))[:3]
+                    logger.info(f"  - Top 3 asks: {[(price, level.size) for price, level in sorted_asks]}")
+        
+        except Exception as e:
+            logger.error(f"Error logging orderbook state: {e}")
+    
+    def cleanup(self):
+        """Clean up resources, stop background tasks."""
+        self.stop_periodic_logging()
+        logger.info("KalshiMessageProcessor cleaned up")
+
     async def handle_message(self, raw_message: str, metadata: Dict[str, Any]) -> None:
         """
         Main message handler for KalshiQueue.
@@ -188,21 +351,25 @@ class KalshiMessageProcessor:
             metadata: Message metadata including ticker, channel, etc.
         """
         try:
+            # Log raw message receipt
+            logger.debug(f"📨 KALSHI MSG: Received raw message (length: {len(raw_message)})")
+            logger.debug(f"📨 KALSHI MSG: Metadata: {metadata}")
+            
             # Decode JSON
             try:
                 message_data = json.loads(raw_message)
             except json.JSONDecodeError as e:
-                logger.error(f"Failed to decode Kalshi message JSON: {e}")
+                logger.error(f"❌ KALSHI MSG: Failed to decode JSON: {e}")
                 logger.debug(f"Raw message: {raw_message}")
                 return
             
             # Extract message type
             message_type = message_data.get('type')
             if not message_type:
-                logger.warning(f"No message type found in Kalshi message: {message_data}")
+                logger.warning(f"⚠️ KALSHI MSG: No message type found: {message_data}")
                 return
             
-            logger.debug(f"Processing Kalshi message type: {message_type}")
+            logger.info(f"🔄 KALSHI MSG: Processing type '{message_type}' (sid: {message_data.get('sid', 'unknown')})")
             
             # Route to appropriate handler
             if message_type == 'error':
@@ -214,11 +381,11 @@ class KalshiMessageProcessor:
             elif message_type == 'orderbook_delta':
                 await self._handle_orderbook_delta(message_data, metadata)
             else:
-                logger.info(f"Unknown Kalshi message type: {message_type}")
+                logger.info(f"❓ KALSHI MSG: Unknown message type: {message_type}")
                 logger.debug(f"Message data: {message_data}")
                 
         except Exception as e:
-            logger.error(f"Error processing Kalshi message: {e}")
+            logger.error(f"💥 KALSHI MSG: Error processing message: {e}")
             logger.debug(f"Raw message: {raw_message}")
             logger.debug(f"Metadata: {metadata}")
     

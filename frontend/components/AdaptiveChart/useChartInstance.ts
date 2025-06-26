@@ -48,6 +48,8 @@ interface UseChartInstanceProps {
   staticData: { yes: LinePoint[]; no: LinePoint[] }
   setStaticData: (d: { yes: LinePoint[]; no: LinePoint[] }) => void
   chartId: string
+  platform?: string
+  marketId?: string
 }
 
 export function useChartInstance({
@@ -55,8 +57,19 @@ export function useChartInstance({
   containerHeight,
   staticData,
   setStaticData,
-  chartId
+  chartId,
+  platform,
+  marketId
 }: UseChartInstanceProps) {
+  /* --------------------------------------------------------------- */
+  /*  Debug: Log when platform and marketId are received           */
+  /* --------------------------------------------------------------- */
+  useEffect(() => {
+    if (platform && marketId) {
+      console.log(`🔗 useChartInstance [${chartId}]: Platform: ${platform}, Market ID: ${marketId}`)
+    }
+  }, [platform, marketId, chartId])
+
   /* --------------------------------------------------------------- */
   /*  global redux state - now using chartId for isolated state     */
   /* --------------------------------------------------------------- */

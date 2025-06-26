@@ -39,6 +39,9 @@ interface AdaptiveChartProps {
   staticData: { yes: any[], no: any[] };
   setStaticData: (data: { yes: any[], no: any[] }) => void;
   chartId: string; // Required - represents which chart all of the toggles are working towards 
+  platform?: string; // Platform for the selected market (e.g., 'polymarket', 'kalshi')
+  marketId?: string; // Market ID for the selected market
+  marketTitle?: string; // Market title for display purposes
 }
 
 export function AdaptiveChart({
@@ -48,8 +51,18 @@ export function AdaptiveChart({
   className = "AdaptiveChart",
   staticData,
   setStaticData,
-  chartId
+  chartId,
+  platform,
+  marketId,
+  marketTitle
 }: AdaptiveChartProps) {
+  // Debug: Log when platform and marketId change
+  useEffect(() => {
+    if (platform && marketId) {
+      console.log(`📈 AdaptiveChart [${chartId}]: Received market data - Platform: ${platform}, Market ID: ${marketId}, Title: ${marketTitle || 'N/A'}`)
+    }
+  }, [platform, marketId, marketTitle, chartId])
+
   // Redux state - now using chartId for isolated state
   const { selectedView, setView } = useChartViewState(chartId)
   const { selectedRange, setRange } = useChartRangeState(chartId)
@@ -77,7 +90,9 @@ export function AdaptiveChart({
     containerHeight: containerHeight, // Use consistent height, we'll handle resizing manually
     staticData,
     setStaticData,
-    chartId
+    chartId,
+    platform,
+    marketId
   })
 
   // Overlay management - listens to Redux state and manages actual overlay instances
