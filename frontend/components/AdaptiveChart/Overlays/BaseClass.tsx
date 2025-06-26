@@ -28,11 +28,11 @@ export default abstract class SeriesClass { to define overlays ontop of price se
  */
 
 import { IChartApi, ISeriesApi, UTCTimestamp } from 'lightweight-charts'
-import { SeriesType, SeriesClassConstructorOptions, MarketDataUpdate, MarketDataPoint } from '../../../lib/chart-types'
+import { SeriesType, SeriesClassConstructorOptions, MarketDataUpdate, MarketDataPoint, TimeRange } from '../../../lib/ChartStuff/chart-types'
 import { useMarketSubscriptionState } from '../hooks/useMarketSubscriptionState'
 import { useChartRangeState } from '../hooks/useChartRangeState'
 import { rxjsChannelManager } from '../../../lib/RxJSChannelManager'
-import type { TimeRange, MarketSide, ChannelMessage, DataPoint } from '../../../lib/RxJSChannelManager'
+import type { MarketSide, ChannelMessage, DataPoint } from '../../../lib/RxJSChannelManager'
 import { getVisibleRangeStart, toUtcTimestamp } from '../../../lib/time-horizontalscale'
 import { Subscription } from 'rxjs'
 
@@ -50,7 +50,7 @@ export default abstract class SeriesClass {
   
   // New properties for RxJS channel manager
   protected marketId: string | null = null
-  protected currentTimeRange: TimeRange = '1D'
+  protected currentTimeRange: TimeRange = '1H'
   
   constructor(options: SeriesClassConstructorOptions) {
     this.seriesType = options.seriesType
@@ -160,39 +160,74 @@ export default abstract class SeriesClass {
     }
 
     try {
+      // TRACE: Log the subscription attempt with all details
+      const attemptedChannel = `${marketId}&${side}&${timeRange}`
+      console.log(`🔍 [EMITTER_CONNECTION_TRACE] BaseClass attempting RxJS subscription:`, {
+        seriesType: this.seriesType,
+        subscriptionId: this.subscriptionId,
+        attemptedMarketId: marketId,
+        attemptedSide: side,
+        attemptedTimeRange: timeRange,
+        attemptedChannelAddress: attemptedChannel,
+        rxjsChannelManagerExists: !!rxjsChannelManager
+      })
+      
       // Subscribe to the RxJS channel manager
       const channelObservable = rxjsChannelManager.subscribe(marketId, side, timeRange)
       
       this.rxjsSubscription = channelObservable.subscribe({
         next: (channelMessage: ChannelMessage) => {
+          console.log(`🔍 [DEBUG] BaseClass ${this.seriesType} - RxJS next() called with message from channel: ${channelMessage.channel}`)
+          
           if (!this.seriesApi) {
             console.log(`⏭️ BaseClass ${this.seriesType} - Skipping event (no series API available)`)
             return
           }
 
           try {
+            console.log(`🔍 [DEBUG] BaseClass ${this.seriesType} - Raw channel message:`, {
+              channel: channelMessage.channel,
+              updateType: channelMessage.updateType,
+              dataType: Array.isArray(channelMessage.data) ? 'array' : 'object',
+              dataLength: Array.isArray(channelMessage.data) ? channelMessage.data.length : 1,
+              data: channelMessage.data
+            })
+
             if (channelMessage.updateType === 'initial_data') {
               // Handle initial data array with setData() for full dataset
               const initialData = channelMessage.data as DataPoint[]
               console.log(`📊 BaseClass ${this.seriesType} - Received ${initialData.length} initial data points for ${channelMessage.channel}`)
+              console.log(`🔍 [DEBUG] BaseClass ${this.seriesType} - First 3 initial data points:`, initialData.slice(0, 3))
               
               // Convert DataPoint to chart format and use common updateData method
-              this.updateData(initialData.map(point => ({
+              const chartData = initialData.map(point => ({
                 time: point.time as any,
                 value: point.value
-              })))
+              }))
+              console.log(`🔍 [DEBUG] BaseClass ${this.seriesType} - Converted chart data (first 3):`, chartData.slice(0, 3))
+              
+              this.updateData(chartData)
               console.log(`✅ BaseClass ${this.seriesType} - Loaded initial dataset successfully`)
               
             } else if (channelMessage.updateType === 'update') {
               // Handle single update with update() for performance  
               const updatePoint = channelMessage.data as DataPoint
               console.log(`📈 BaseClass ${this.seriesType} - Received real-time update:`, updatePoint)
+              console.log(`🔍 [DEBUG] BaseClass ${this.seriesType} - Update point details:`, {
+                time: updatePoint.time,
+                value: updatePoint.value,
+                volume: updatePoint.volume,
+                timeType: typeof updatePoint.time,
+                valueType: typeof updatePoint.value
+              })
               
               // Use common appendData method
-              this.appendData({
+              const chartPoint = {
                 time: updatePoint.time as any,
                 value: updatePoint.value
-              })
+              }
+              console.log(`🔍 [DEBUG] BaseClass ${this.seriesType} - Chart point to append:`, chartPoint)
+              this.appendData(chartPoint)
             }
           } catch (error) {
             console.error(`❌ BaseClass ${this.seriesType} - Error processing RxJS channel data:`, error)
@@ -206,9 +241,17 @@ export default abstract class SeriesClass {
       })
       
       this.isSubscribed = true
+      console.log(`🔍 [EMITTER_CONNECTION_SUCCESS] BaseClass ${this.seriesType} - Successfully connected to RxJS channel: ${marketId}&${side}&${timeRange}`)
       console.log(`✅ BaseClass ${this.seriesType} - Subscribed to RxJS channel: ${marketId}&${side}&${timeRange}`)
       
     } catch (error) {
+      console.error(`🔍 [EMITTER_CONNECTION_FAILED] BaseClass ${this.seriesType} - Failed to subscribe to RxJS channel:`, {
+        marketId,
+        side,
+        timeRange,
+        attemptedChannelAddress: `${marketId}&${side}&${timeRange}`,
+        error: error
+      })
       console.error(`❌ BaseClass ${this.seriesType} - Failed to subscribe to RxJS channel:`, error)
       this.onError(`RxJS channel subscription failed: ${error}`)
     }
@@ -219,17 +262,11 @@ export default abstract class SeriesClass {
       if (this.subscriptionId && this.isSubscribed) {
         console.log(`🛑 BaseClass ${this.seriesType} - Unsubscribing from: ${this.subscriptionId}`)
         
-        // Use the teardown function for proper cleanup
-        if (this.unsubscribeFunction) {
-          this.unsubscribeFunction()
-          this.unsubscribeFunction = null
-          console.log(`✅ BaseClass ${this.seriesType} - Teardown function executed`)
-        }
-        
-        // Clean up event handler
-        if (this.dataHandler) {
-          marketDataEmitter.off('market-data', this.dataHandler)
-          this.dataHandler = null
+        // Clean up RxJS subscription
+        if (this.rxjsSubscription) {
+          this.rxjsSubscription.unsubscribe()
+          this.rxjsSubscription = null
+          console.log(`✅ BaseClass ${this.seriesType} - RxJS subscription cleaned up`)
         }
         
         this.isSubscribed = false
@@ -249,26 +286,45 @@ export default abstract class SeriesClass {
 
   // Common data update methods that work for all series types
   protected updateData(data: any[]): void {
+    console.log(`🔍 [DEBUG] BaseClass ${this.seriesType} - updateData called with:`, {
+      dataLength: data.length,
+      hasSeriesApi: !!this.seriesApi,
+      firstPoint: data[0],
+      lastPoint: data[data.length - 1]
+    })
+    
     if (this.seriesApi && data.length > 0) {
       try {
         this.seriesApi.setData(data)
-        //console.log(`✅ BaseClass - Updated ${this.seriesType} with ${data.length} data points`)
+        console.log(`✅ BaseClass - Updated ${this.seriesType} with ${data.length} data points`)
       } catch (error) {
         console.error(`❌ BaseClass - Failed to update ${this.seriesType} data:`, error)
         this.onError(`Data update failed: ${error}`)
       }
+    } else {
+      console.warn(`⚠️ BaseClass ${this.seriesType} - updateData skipped:`, {
+        hasSeriesApi: !!this.seriesApi,
+        dataLength: data.length
+      })
     }
   }
 
   protected appendData(dataPoint: any): void {
+    console.log(`🔍 [DEBUG] BaseClass ${this.seriesType} - appendData called with:`, {
+      dataPoint,
+      hasSeriesApi: !!this.seriesApi
+    })
+    
     if (this.seriesApi) {
       try {
         this.seriesApi.update(dataPoint)
-        //console.log(`✅ BaseClass - Appended data to ${this.seriesType}:`, dataPoint)
+        console.log(`✅ BaseClass - Appended data to ${this.seriesType}:`, dataPoint)
       } catch (error) {
         console.error(`❌ BaseClass - Failed to append data to ${this.seriesType}:`, error)
         this.onError(`Data append failed: ${error}`)
       }
+    } else {
+      console.warn(`⚠️ BaseClass ${this.seriesType} - appendData skipped: no seriesApi`)
     }
     //this.chartInstance.timeScale().fitContent()
   }
@@ -312,7 +368,26 @@ export default abstract class SeriesClass {
       
       // Subscribe to new range
       console.log(`🚀 BaseClass ${this.seriesType} - Subscribing to new range: ${newSubscriptionId}`)
-      await this.subscribe(newSubscriptionId)
+      
+      // Parse the new subscription ID to get marketId, side, timeRange
+      // Expected format: seriesType&timeRange&marketId (using & as delimiter to avoid conflicts)
+      const subscriptionParts = newSubscriptionId.split('&')
+      if (subscriptionParts.length >= 3) {
+        const [seriesTypeStr, timeRange, ...marketIdParts] = subscriptionParts
+        const marketId = marketIdParts.join('&') // Rejoin in case marketId contains &
+        const side = seriesTypeStr.toLowerCase() as 'yes' | 'no'
+        console.log(`🔍 [DEBUG] BaseClass ${this.seriesType} - Parsed subscription:`, {
+          seriesTypeStr,
+          timeRange,
+          marketId,
+          side
+        })
+        await this.subscribe(marketId, side, timeRange as any)
+      } else {
+        console.error(`❌ BaseClass ${this.seriesType} - Invalid subscription ID format for range switch: ${newSubscriptionId}`)
+        console.error(`❌ Expected format: seriesType&timeRange&marketId, got: ${newSubscriptionId}`)
+        return
+      }
     
       //get endTime inside chart or now, should not make a different to be honest
       const end_time: UTCTimestamp = toUtcTimestamp(this.chartInstance.timeScale().getVisibleRange()?.to) ?? (Date.now() / 1000 ) as UTCTimestamp;

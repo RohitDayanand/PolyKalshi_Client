@@ -5,7 +5,7 @@
  * This provides consistent subscription IDs across the entire application.
  */
 
-import { TimeRange, SeriesType } from './chart-types'
+import { TimeRange, SeriesType } from './ChartStuff/chart-types'
 
 // Base symbols for different markets
 export const MARKET_SYMBOLS = {
@@ -33,13 +33,17 @@ export const RANGE_CACHE_SIZES = {
 
 /**
  * Generate subscription ID for a specific series type, range, and symbol
+ * Format: marketId&side&range to match RxJS channel key format
  */
 export function generateSubscriptionId(
   seriesType: SeriesType,
   range: TimeRange,
   symbol: string = MARKET_SYMBOLS.DEFAULT
 ): string {
-  return `${seriesType.toLowerCase()}_${range}_${symbol}`
+  // Convert SeriesType to lowercase side to match RxJS format
+  const side = seriesType.toLowerCase() // 'YES' -> 'yes', 'NO' -> 'no'
+  // Use marketId&side&range format to match RxJSChannelManager.generateChannelKey()
+  return `${symbol}&${side}&${range}`
 }
 
 /**

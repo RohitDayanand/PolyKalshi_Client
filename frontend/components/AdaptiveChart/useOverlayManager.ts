@@ -9,8 +9,8 @@ import { BollingerBands } from './Overlays/BollingerBands'
 import { CandleStick } from './Overlays/CandleStick'
 import { LineSeries } from './Overlays/LineSeries'
 import { Volume } from './Overlays/Volume'
-import { SeriesType, TimeRange, Overlay } from '../../lib/chart-types'
-import { OVERLAY_REGISTRY } from '../../lib/overlay-registry'
+import { SeriesType, TimeRange, Overlay } from '../../lib/ChartStuff/chart-types'
+import { OVERLAY_REGISTRY } from '../../lib/ChartStuff/overlay-registry'
 import { generateSubscriptionId } from '../../lib/subscription-baseline'
 import { BASELINE_SUBSCRIPTION_IDS, getSubscriptionConfig } from '@/lib/subscription-baseline'
 import { useMarketSubscriptionState } from './hooks/useMarketSubscriptionState'
@@ -67,6 +67,8 @@ const OVERLAY_CLASS_MAP: Record<string, ConcreteSeriesClass> = {
 interface UseOverlayManagerProps {
   chartInstanceRef: MutableRefObject<IChartApi | null>
   chartId: string
+  marketId?: string  // Add marketId prop
+  platform?: string  // Add platform for context
 }
 const BOTTOM_CLASS_MAP: string[] = [
   'yes_volume_profile',
@@ -74,7 +76,10 @@ const BOTTOM_CLASS_MAP: string[] = [
   'universal_volume_profile'
 ]
 
-export function useOverlayManager({ chartInstanceRef, chartId }: UseOverlayManagerProps) {
+export function useOverlayManager({ chartInstanceRef, chartId, marketId, platform }: UseOverlayManagerProps) {
+  // TRACE: Log useOverlayManager reception - now showing what it receives
+  console.log(`🔍 [MARKET_ID_TRACE] useOverlayManager received [${chartId}]: chartInstanceRef=${!!chartInstanceRef}, chartId="${chartId}", marketId="${marketId}", platform="${platform}"`)
+  
   // Redux state hooks - now using chartId for isolated state
   const { overlays, addOverlay } = useOverlayState(chartId)
   const { selectedView } = useChartViewState(chartId)
@@ -124,9 +129,61 @@ export function useOverlayManager({ chartInstanceRef, chartId }: UseOverlayManag
 
     //build the overlay with the actual parent 
     try {
-      // Use proper subscription ID system like useChartInstance
-      const subscriptionId = getSubscriptionId(overlay.type, overlay.range) || 
-                            BASELINE_SUBSCRIPTION_IDS[overlay.type][overlay.range]
+      // FIXED: Use real marketId with platform prefix if available, otherwise fall back to Redux/baseline
+      const reduxSubscriptionId = getSubscriptionId(overlay.type, overlay.range)
+      
+      // Generate subscription ID with platform prefix to match WebSocket emission format
+      let realMarketSubscriptionId = null
+      if (marketId && platform) {
+        const platformPrefixedMarketId = `${platform.toLowerCase()}_${marketId}`
+        realMarketSubscriptionId = generateSubscriptionId(overlay.type, overlay.range, platformPrefixedMarketId)
+        console.log(`🔍 [PLATFORM_PREFIX] Generated subscription ID with platform prefix:`, {
+          originalMarketId: marketId,
+          platform,
+          platformPrefixedMarketId,
+          subscriptionId: realMarketSubscriptionId
+        })
+      } else if (marketId) {
+        // Fallback without platform prefix
+        realMarketSubscriptionId = generateSubscriptionId(overlay.type, overlay.range, marketId)
+        console.log(`⚠️ [NO_PLATFORM] Generated subscription ID without platform prefix:`, {
+          marketId,
+          subscriptionId: realMarketSubscriptionId,
+          reason: 'Platform not provided'
+        })
+      }
+      
+      const baselineSubscriptionId = BASELINE_SUBSCRIPTION_IDS[overlay.type][overlay.range]
+      
+      // Priority: real marketId (with platform) > Redux state > baseline fallback
+      const subscriptionId = realMarketSubscriptionId || reduxSubscriptionId || baselineSubscriptionId
+      
+      // TRACE: Log subscription ID generation logic with enhanced details
+      console.log(`🔍 [MARKET_ID_TRACE] useOverlayManager subscription ID generation [${chartId}]:`, {
+        overlayType: overlay.type,
+        overlayRange: overlay.range,
+        hasMarketId: !!marketId,
+        hasPlatform: !!platform,
+        originalMarketId: marketId || 'NONE',
+        platform: platform || 'NONE',
+        platformPrefixApplied: !!(marketId && platform),
+        realMarketSubscriptionId: realMarketSubscriptionId || 'NONE',
+        reduxSubscriptionId: reduxSubscriptionId || 'EMPTY',
+        baselineSubscriptionId,
+        finalSubscriptionId: subscriptionId,
+        sourceUsed: realMarketSubscriptionId ? 'REAL_MARKET_ID_WITH_PLATFORM' : (reduxSubscriptionId ? 'REDUX' : 'BASELINE')
+      })
+      
+      console.log(`🔍 [CHANNEL_MATCH] useOverlayManager final subscription details [${chartId}]:`, {
+        overlayKey,
+        seriesType: overlay.type,
+        range: overlay.range,
+        finalSubscriptionId: subscriptionId,
+        expectedChannelFormat: 'platform_marketId&side&range',
+        platformPrefixIncluded: subscriptionId.includes('_'),
+        willMatchWebSocketEmission: !!(marketId && platform),
+        willCreateChannel: !marketId ? 'YES - using baseline/redux ID' : 'MAYBE - using real market ID with platform'
+      })
       
       const instance = new OverlayClass({
         chartInstance,

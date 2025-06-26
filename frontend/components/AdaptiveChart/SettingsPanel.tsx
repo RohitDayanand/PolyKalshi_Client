@@ -6,7 +6,7 @@
 import { Card, CardContent } from "@/components/ui/card"
 import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
-import { SeriesView } from '@/lib/chart-types'
+import { SeriesView } from '@/lib/ChartStuff/chart-types'
 
 interface SettingsPanelProps {
   showSettings: boolean

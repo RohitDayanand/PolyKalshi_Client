@@ -12,13 +12,13 @@ import {
   seriesOptions,
   CHART_RETRY_CONFIG,
   updateChartTimeScale,
-} from '@/lib/chart-config'
+} from '@/lib/ChartStuff/chart-config'
 import {
   generateRangeData,
   generateStreamingData,
   getNextRealtimeUpdate,
-} from '@/lib/chart-utils'
-import { ChartSeriesRefs, SeriesType, TimeRange } from '@/lib/chart-types'
+} from '@/lib/ChartStuff/chart-utils'
+import { ChartSeriesRefs, SeriesType, TimeRange } from '@/lib/ChartStuff/chart-types'
 import type {
   Time,
   LineData,

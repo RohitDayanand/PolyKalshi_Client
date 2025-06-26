@@ -6,7 +6,7 @@ import {
   setNoSubscription,
   setRangeSubscriptions
 } from '../../../lib/store/marketSubscriptionSlice'
-import { MarketSubscription, SeriesType, TimeRange } from '../../../lib/chart-types'
+import { MarketSubscription, SeriesType, TimeRange } from '../../../lib/ChartStuff/chart-types'
 
 export function useMarketSubscriptionState(chartId: string) {
   const selectedMarket = useAppSelector((state) => {

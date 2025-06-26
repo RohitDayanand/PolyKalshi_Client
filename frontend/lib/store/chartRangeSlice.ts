@@ -1,5 +1,5 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit'
-import { TimeRange } from '../chart-types'
+import { TimeRange } from '../ChartStuff/chart-types'
 
 interface ChartRangeInstanceState {
   selectedRange: TimeRange

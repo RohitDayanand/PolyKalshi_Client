@@ -1,6 +1,6 @@
 import { LineSeries as LightweightLineSeries, ISeriesApi, LineData, Time } from 'lightweight-charts'
 import SeriesClass from './BaseClass'
-import { SeriesClassConstructorOptions, MarketDataUpdate, MarketDataPoint } from '../../../lib/chart-types'
+import { SeriesClassConstructorOptions, MarketDataUpdate, MarketDataPoint } from '../../../lib/ChartStuff/chart-types'
 
 /**
  * BOLLINGER BANDS OVERLAY COMPONENT
@@ -56,8 +56,31 @@ export class BollingerBands extends SeriesClass {
       console.log(`✅ SeriesClass - Created ${this.seriesType} Bollinger Bands with subscription ID: ${this.subscriptionId}`)
       
       // Auto-subscribe to market data if subscription ID exists
+      // Parse subscription ID to extract marketId, side, and timeRange
       if (this.subscriptionId) {
-        this.subscribe(this.subscriptionId)
+        console.log(`🔗 BollingerBands - Attempting subscription with ID: ${this.subscriptionId}`)
+        
+        // Parse subscription ID format: "seriesType&timeRange&marketId"
+        const subscriptionParts = this.subscriptionId.split('&')
+        if (subscriptionParts.length >= 3) {
+          const [seriesTypeStr, timeRange, ...marketIdParts] = subscriptionParts
+          const marketId = marketIdParts.join('&') // Rejoin market ID parts that may contain '&'
+          const side = seriesTypeStr.toLowerCase() as 'yes' | 'no'
+          
+          console.log(`📊 BollingerBands - Parsed subscription details:`, {
+            subscriptionId: this.subscriptionId,
+            marketId,
+            side,
+            timeRange,
+            seriesType: this.seriesType
+          })
+          
+          this.subscribe(marketId, side, timeRange as any)
+        } else {
+          console.error(`❌ BollingerBands - Invalid subscription ID format: ${this.subscriptionId}`)
+        }
+      } else {
+        console.warn(`⚠️ BollingerBands - No subscription ID provided for ${this.seriesType} series`)
       }
     } catch (error) {
       console.error(`❌ SeriesClass - Failed to create ${this.seriesType} Bollinger Bands:`, error)

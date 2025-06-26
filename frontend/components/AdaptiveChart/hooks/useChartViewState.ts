@@ -1,6 +1,6 @@
 import { useAppSelector, useAppDispatch } from '../../../lib/store/hooks'
 import { setSelectedView } from '../../../lib/store/chartViewSlice'
-import { SeriesView } from '../../../lib/chart-types'
+import { SeriesView } from '../../../lib/ChartStuff/chart-types'
 
 export function useChartViewState(chartId: string) {
   const selectedView = useAppSelector((state) => {

@@ -28,8 +28,8 @@ import { useChartRangeState } from '../hooks/useChartRangeState'
 import { useChartFullscreenState } from '../hooks/useChartFullscreenState'
 import { ChartControls } from './ChartControls'
 import { OverlayToggle } from './OverlayToggle'
-import { TIME_RANGES, SERIES_VIEWS, TimeRange, SeriesView } from '@/lib/chart-types'
-import { CHART_THEME } from '@/lib/chart-config'
+import { TIME_RANGES, SERIES_VIEWS, TimeRange, SeriesView } from '@/lib/ChartStuff/chart-types'
+import { CHART_THEME } from '@/lib/ChartStuff/chart-config'
 
 interface AdaptiveChartProps {
   isVisible: boolean;

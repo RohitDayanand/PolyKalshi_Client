@@ -13,7 +13,7 @@ import {
   ResponsiveContainer,
   ZAxis,
 } from "recharts"
-import { generateComparisonData } from "@/lib/mock-data"
+import { generateComparisonData } from "@/lib/ChartStuff/mock-data"
 import type { Market } from "@/types/market"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 

@@ -9,7 +9,7 @@ import {
   setOverlays, 
   clearOverlays
 } from '../../../lib/store/overlaySlice'
-import { Overlay, OverlayDictionary, SeriesType, TimeRange } from '../../../lib/chart-types'
+import { Overlay, OverlayDictionary, SeriesType, TimeRange } from '../../../lib/ChartStuff/chart-types'
 
 export function useOverlayState(chartId: string) {
   const overlays = useAppSelector((state) => {

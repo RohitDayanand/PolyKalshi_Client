@@ -1,5 +1,5 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit'
-import { SeriesView } from '../chart-types'
+import { SeriesView } from '../ChartStuff/chart-types'
 
 interface ChartViewInstanceState {
   selectedView: SeriesView
