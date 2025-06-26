@@ -1,7 +1,7 @@
 import { HistogramSeries as LightweightHistogramSeries, ISeriesApi, HistogramData, Time } from 'lightweight-charts'
 import SeriesClass from './BaseClass'
-import { SeriesClassConstructorOptions, MarketDataUpdate, MarketDataPoint } from '../../../lib/chart-types'
-import { CHART_THEME } from '@/lib/chart-config'
+import { SeriesClassConstructorOptions, MarketDataUpdate, MarketDataPoint } from '../../../lib/ChartStuff/chart-types'
+import { CHART_THEME } from '@/lib/ChartStuff/chart-config'
 
 /**
  * VOLUME OVERLAY COMPONENT
@@ -59,8 +59,31 @@ export class Volume extends SeriesClass {
       console.log(`✅ SeriesClass - Created ${this.seriesType} volume series with subscription ID: ${this.subscriptionId}`)
       
       // Auto-subscribe to market data if subscription ID exists
+      // Parse subscription ID to extract marketId, side, and timeRange
       if (this.subscriptionId) {
-        this.subscribe(this.subscriptionId)
+        console.log(`🔗 Volume - Attempting subscription with ID: ${this.subscriptionId}`)
+        
+        // Parse subscription ID format: "seriesType&timeRange&marketId"
+        const subscriptionParts = this.subscriptionId.split('&')
+        if (subscriptionParts.length >= 3) {
+          const [seriesTypeStr, timeRange, ...marketIdParts] = subscriptionParts
+          const marketId = marketIdParts.join('&') // Rejoin market ID parts that may contain '&'
+          const side = seriesTypeStr.toLowerCase() as 'yes' | 'no'
+          
+          console.log(`📊 Volume - Parsed subscription details:`, {
+            subscriptionId: this.subscriptionId,
+            marketId,
+            side,
+            timeRange,
+            seriesType: this.seriesType
+          })
+          
+          this.subscribe(marketId, side, timeRange as any)
+        } else {
+          console.error(`❌ Volume - Invalid subscription ID format: ${this.subscriptionId}`)
+        }
+      } else {
+        console.warn(`⚠️ Volume - No subscription ID provided for ${this.seriesType} series`)
       }
     } catch (error) {
       console.error(`❌ SeriesClass - Failed to create ${this.seriesType} volume series:`, error)

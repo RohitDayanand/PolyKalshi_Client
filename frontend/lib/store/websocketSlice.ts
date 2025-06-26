@@ -75,82 +75,14 @@ const websocketSlice = createSlice({
       state.error = action.payload
     },
     
-    // Message handling
+    // Message handling - no message storage to prevent re-renders
     addMessage: (state, action: PayloadAction<WebSocketMessage>) => {
-      const message = {
-        ...action.payload,
-        timestamp: action.payload.timestamp || new Date().toISOString(),
-      }
-      
-      state.messages.push(message)
-      state.lastMessage = message
-      
-      // Keep only last 100 messages to prevent memory issues
-      if (state.messages.length > 100) {
-        state.messages = state.messages.slice(-100)
+      // Only update connection status if needed, don't store messages
+      if (action.payload.type === 'connection_status') {
+        state.connectionStatus = action.payload.status || 'connected'
       }
     },
     
-    // Market data updates
-    updateOrderbook: (state, action: PayloadAction<{
-      marketId: string
-      orderbook: any
-      timestamp?: string
-    }>) => {
-      const message: WebSocketMessage = {
-        type: 'orderbook',
-        data: action.payload.orderbook,
-        timestamp: action.payload.timestamp || new Date().toISOString(),
-        marketId: action.payload.marketId,
-      }
-      
-      state.messages.push(message)
-      state.lastMessage = message
-      
-      if (state.messages.length > 100) {
-        state.messages = state.messages.slice(-100)
-      }
-    },
-    
-    updatePriceChange: (state, action: PayloadAction<{
-      marketId: string
-      priceChange: any
-      timestamp?: string
-    }>) => {
-      const message: WebSocketMessage = {
-        type: 'price_change',
-        data: action.payload.priceChange,
-        timestamp: action.payload.timestamp || new Date().toISOString(),
-        marketId: action.payload.marketId,
-      }
-      
-      state.messages.push(message)
-      state.lastMessage = message
-      
-      if (state.messages.length > 100) {
-        state.messages = state.messages.slice(-100)
-      }
-    },
-    
-    updateTickSizeChange: (state, action: PayloadAction<{
-      marketId: string
-      tickSizeChange: any
-      timestamp?: string
-    }>) => {
-      const message: WebSocketMessage = {
-        type: 'tick_size_change',
-        data: action.payload.tickSizeChange,
-        timestamp: action.payload.timestamp || new Date().toISOString(),
-        marketId: action.payload.marketId,
-      }
-      
-      state.messages.push(message)
-      state.lastMessage = message
-      
-      if (state.messages.length > 100) {
-        state.messages = state.messages.slice(-100)
-      }
-    },
     
     // Clear messages
     clearMessages: (state) => {
@@ -168,38 +100,18 @@ const websocketSlice = createSlice({
       state.reconnectAttempts = 0
     },
 
-    // New actions for our backend API integration
+    // Ticker updates - no message storage
     addTickerUpdate: (state, action: PayloadAction<WebSocketMessage>) => {
-      const message = {
-        ...action.payload,
-        timestamp: action.payload.timestamp || Date.now(),
-      }
-      
-      state.messages.push(message)
-      state.lastMessage = message
-      
-      // Keep only last 50 messages for UI display
-      if (state.messages.length > 50) {
-        state.messages = state.messages.slice(-50)
-      }
+      // Process ticker data without storing in Redux
     },
 
     addConnectionStatus: (state, action: PayloadAction<WebSocketMessage>) => {
-      const message = {
-        ...action.payload,
-        timestamp: action.payload.timestamp || Date.now(),
-      }
-      
-      state.messages.push(message)
-      state.lastMessage = message
-      
-      if (state.messages.length > 50) {
-        state.messages = state.messages.slice(-50)
-      }
+      // Only update connection status, don't store messages
+      state.connectionStatus = action.payload.status || 'connected'
     },
 
     // Subscribe to market via WebSocket
-    subscribeToMarket: (state, action: PayloadAction<{marketId: string, platform: string}>) => {
+    subscribeToMarket: (_state, _action: PayloadAction<{marketId: string, platform: string}>) => {
       // This will be handled by middleware
     },
   },
@@ -212,9 +124,6 @@ export const {
   reconnecting,
   connectionError,
   addMessage,
-  updateOrderbook,
-  updatePriceChange,
-  updateTickSizeChange,
   clearMessages,
   clearError,
   resetReconnectAttempts,

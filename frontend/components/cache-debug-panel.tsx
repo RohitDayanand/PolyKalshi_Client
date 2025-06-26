@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { RefreshCw, Database, Clock, Check, X } from 'lucide-react'
 import { marketSearchService } from '@/lib/search-service'
-import type { SelectedToken } from '@/lib/market-cache'
+import type { SelectedToken } from '@/lib/ChartStuff/market-cache'
 
 interface CacheStats {
   marketCount: number

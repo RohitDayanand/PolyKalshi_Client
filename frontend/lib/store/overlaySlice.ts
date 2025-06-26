@@ -1,5 +1,5 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit'
-import { Overlay, OverlayDictionary, SeriesType, TimeRange } from '../chart-types'
+import { Overlay, OverlayDictionary, SeriesType, TimeRange } from '../ChartStuff/chart-types'
 
 interface OverlayInstanceState {
   overlays: OverlayDictionary

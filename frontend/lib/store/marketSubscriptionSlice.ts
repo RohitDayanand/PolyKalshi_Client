@@ -1,5 +1,5 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit'
-import { MarketSubscription, TimeRange, SeriesType } from '../chart-types'
+import { MarketSubscription, TimeRange, SeriesType } from '../ChartStuff/chart-types'
 
 interface MarketSubscriptionInstanceState {
   selectedMarket: MarketSubscription
@@ -36,7 +36,6 @@ export const marketSubscriptionSlice = createSlice({
   reducers: {
     setSelectedMarket: (state, action: PayloadAction<{ chartId: string; market: MarketSubscription }>) => {
       const { chartId, market } = action.payload
-      console.log('🏪 Redux Reducer - marketSubscription/setSelectedMarket:', { chartId, market })
       
       // Initialize chart instance if it doesn't exist
       if (!state.chartInstances[chartId]) {
@@ -49,7 +48,6 @@ export const marketSubscriptionSlice = createSlice({
     // Set subscription for specific series type and range
     setSubscription: (state, action: PayloadAction<{ chartId: string; seriesType: SeriesType; range: TimeRange; subscriptionId: string }>) => {
       const { chartId, seriesType, range, subscriptionId } = action.payload
-      console.log('🏪 Redux Reducer - marketSubscription/setSubscription:', { chartId, seriesType, range, subscriptionId })
       
       // Initialize chart instance if it doesn't exist
       if (!state.chartInstances[chartId]) {
@@ -66,7 +64,6 @@ export const marketSubscriptionSlice = createSlice({
     // Legacy methods for backward compatibility
     setYesSubscription: (state, action: PayloadAction<{ chartId: string; range: TimeRange; subscriptionId: string }>) => {
       const { chartId, range, subscriptionId } = action.payload
-      console.log('🏪 Redux Reducer - marketSubscription/setYesSubscription:', { chartId, range, subscriptionId })
       
       // Initialize chart instance if it doesn't exist
       if (!state.chartInstances[chartId]) {
@@ -78,7 +75,6 @@ export const marketSubscriptionSlice = createSlice({
     
     setNoSubscription: (state, action: PayloadAction<{ chartId: string; range: TimeRange; subscriptionId: string }>) => {
       const { chartId, range, subscriptionId } = action.payload
-      console.log('🏪 Redux Reducer - marketSubscription/setNoSubscription:', { chartId, range, subscriptionId })
       
       // Initialize chart instance if it doesn't exist
       if (!state.chartInstances[chartId]) {
@@ -91,7 +87,6 @@ export const marketSubscriptionSlice = createSlice({
     // Set all subscriptions for a specific range
     setRangeSubscriptions: (state, action: PayloadAction<{ chartId: string; range: TimeRange; yesId: string; noId: string }>) => {
       const { chartId, range, yesId, noId } = action.payload
-      console.log('🏪 Redux Reducer - marketSubscription/setRangeSubscriptions:', { chartId, range, yesId, noId })
       
       // Initialize chart instance if it doesn't exist
       if (!state.chartInstances[chartId]) {
@@ -105,14 +100,12 @@ export const marketSubscriptionSlice = createSlice({
     initializeChartInstance: (state, action: PayloadAction<string>) => {
       const chartId = action.payload
       if (!state.chartInstances[chartId]) {
-        console.log('🏪 Redux Reducer - marketSubscription/initializeChartInstance:', chartId)
         state.chartInstances[chartId] = getDefaultInstanceState()
       }
     },
     
     removeChartInstance: (state, action: PayloadAction<string>) => {
       const chartId = action.payload
-      console.log('🏪 Redux Reducer - marketSubscription/removeChartInstance:', chartId)
       delete state.chartInstances[chartId]
     }
   }

@@ -18,23 +18,37 @@ export class LineSeries extends SeriesClass {
       if (this.subscriptionId) {
         console.log(`🔗 LineSeries - Attempting subscription with ID: ${this.subscriptionId}`)
         
-        // Parse subscription ID format: "seriesType_timeRange_marketId"
-        const subscriptionParts = this.subscriptionId.split('_')
+        // Parse subscription ID format: "marketId&side&timeRange" (RxJS format)
+        const subscriptionParts = this.subscriptionId.split('&')
         if (subscriptionParts.length >= 3) {
-          const [seriesTypeStr, timeRange, marketId] = subscriptionParts
-          const side = seriesTypeStr.toLowerCase() as 'yes' | 'no'
+          const [marketId, sideStr, timeRange] = subscriptionParts
+          // Ensure side is lowercase to match RxJS MarketSide type
+          const side = sideStr.toLowerCase() as 'yes' | 'no'
           
-          console.log(`📊 LineSeries - Parsed subscription details:`, {
-            subscriptionId: this.subscriptionId,
+          console.log(`🔍 [SUBSCRIPTION_ATTEMPT] LineSeries parsing subscription ID:`, {
+            originalSubscriptionId: this.subscriptionId,
+            parsedMarketId: marketId,
+            parsedSide: side,
+            parsedTimeRange: timeRange,
+            seriesType: this.seriesType,
+            conversionFromSeriesType: `${this.seriesType} -> ${side}`
+          })
+          
+          console.log(`🔍 [SUBSCRIPTION_ATTEMPT] LineSeries attempting to subscribe with:`, {
             marketId,
             side,
             timeRange,
-            seriesType: this.seriesType
+            targetChannelKey: `${marketId}&${side}&${timeRange}`
           })
           
           this.subscribe(marketId, side, timeRange as any)
         } else {
-          console.error(`❌ LineSeries - Invalid subscription ID format: ${this.subscriptionId}`)
+          console.error(`🔍 [SUBSCRIPTION_ERROR] LineSeries - Invalid subscription ID format:`, {
+            subscriptionId: this.subscriptionId,
+            expectedFormat: 'marketId&side&timeRange',
+            actualParts: subscriptionParts,
+            partCount: subscriptionParts.length
+          })
         }
       } else {
         console.warn(`⚠️ LineSeries - No subscription ID provided for ${this.seriesType} series`)

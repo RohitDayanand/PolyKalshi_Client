@@ -27,8 +27,8 @@
 
 import { useState, useMemo, useCallback, useEffect } from "react"
 import { Search, Settings, X, CheckSquare, Square, Plus, Minus } from "lucide-react"
-import { SeriesType, TimeRange, SeriesView } from '@/lib/chart-types'
-import { OVERLAY_REGISTRY, type OverlayMetadata } from '@/lib/overlay-registry'
+import { SeriesType, TimeRange, SeriesView } from '@/lib/ChartStuff/chart-types'
+import { OVERLAY_REGISTRY, type OverlayMetadata } from '@/lib/ChartStuff/overlay-registry'
 import { useOverlayState } from '../hooks/useOverlayState'
 import { useChartViewState } from '../hooks/useChartViewState'
 import { useChartRangeState } from '../hooks/useChartRangeState'

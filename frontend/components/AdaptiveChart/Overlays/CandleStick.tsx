@@ -1,6 +1,6 @@
 import { CandlestickSeries as LightweightCandlestickSeries, ISeriesApi, CandlestickData, Time } from 'lightweight-charts'
 import SeriesClass from './BaseClass'
-import { SeriesClassConstructorOptions, MarketDataUpdate, MarketDataPoint } from '../../../lib/chart-types'
+import { SeriesClassConstructorOptions, MarketDataUpdate, MarketDataPoint } from '../../../lib/ChartStuff/chart-types'
 
 /**
  * CANDLESTICK OVERLAY COMPONENT
@@ -158,8 +158,31 @@ export class CandleStick extends SeriesClass {
       console.log(`✅ CandleStick - Created ${this.seriesType} candlestick series with subscription ID: ${this.subscriptionId}`)
       
       // Auto-subscribe to market data if subscription ID exists
+      // Parse subscription ID to extract marketId, side, and timeRange
       if (this.subscriptionId) {
-        this.subscribe(this.subscriptionId)
+        console.log(`🔗 CandleStick - Attempting subscription with ID: ${this.subscriptionId}`)
+        
+        // Parse subscription ID format: "seriesType&timeRange&marketId"
+        const subscriptionParts = this.subscriptionId.split('&')
+        if (subscriptionParts.length >= 3) {
+          const [seriesTypeStr, timeRange, ...marketIdParts] = subscriptionParts
+          const marketId = marketIdParts.join('&') // Rejoin in case marketId contains &
+          const side = seriesTypeStr.toLowerCase() as 'yes' | 'no'
+          
+          console.log(`📊 CandleStick - Parsed subscription details:`, {
+            subscriptionId: this.subscriptionId,
+            marketId,
+            side,
+            timeRange,
+            seriesType: this.seriesType
+          })
+          
+          this.subscribe(marketId, side, timeRange as any)
+        } else {
+          console.error(`❌ CandleStick - Invalid subscription ID format: ${this.subscriptionId}`)
+        }
+      } else {
+        console.warn(`⚠️ CandleStick - No subscription ID provided for ${this.seriesType} series`)
       }
     } catch (error) {
       console.error(`❌ CandleStick - Failed to create ${this.seriesType} series:`, error)

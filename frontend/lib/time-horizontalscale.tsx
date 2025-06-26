@@ -1,4 +1,4 @@
-import { TimeRange, TIME_RANGES } from './chart-types'
+import { TimeRange, TIME_RANGES } from './ChartStuff/chart-types'
 
 /**
  * TIME HORIZONTAL SCALE UTILITIES

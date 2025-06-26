@@ -26,13 +26,11 @@ export const websocketMiddleware: Middleware = (store) => (next) => (action) => 
       websocketInstance.close()
     }
     
-    console.log('🔌 Initializing singleton WebSocket connection...')
     
     // Create new WebSocket connection
     websocketInstance = new WebSocket('ws://localhost:8000/ws/ticker')
     
     websocketInstance.onopen = () => {
-      console.log('✅ Singleton WebSocket connected')
       store.dispatch(connected())
       
       // Set WebSocket instance in RxJS Channel Manager
@@ -48,7 +46,6 @@ export const websocketMiddleware: Middleware = (store) => (next) => (action) => 
             type: 'subscribe_market',
             market_id: marketId
           }
-          console.log('📡 Sending pending WebSocket subscription:', subscriptionMessage)
           websocketInstance?.send(JSON.stringify(subscriptionMessage))
           store.dispatch(markWebSocketSubscribed(marketId))
         })
@@ -58,21 +55,9 @@ export const websocketMiddleware: Middleware = (store) => (next) => (action) => 
     websocketInstance.onmessage = (event) => {
       try {
         const message = JSON.parse(event.data)
-        console.log('📨 WebSocket message received:', message)
         
-        // Should not be streaming ticker updates here 
-        // Dispatch to Redux based on message type
-        if (message.type === 'ticker_update') {
-          store.dispatch(addTickerUpdate(message))
-          
-          // Update subscription status if needed
-          if (message.market_id) {
-            store.dispatch(updateSubscriptionStatus({
-              backend_market_id: message.market_id,
-              status: 'receiving_data'
-            }))
-          }
-        } else if (message.type === 'connection_status') {
+        // Only handle connection status changes, not ticker updates
+        if (message.type === 'connection_status') {
           store.dispatch(addConnectionStatus(message))
           
           if (message.market_id) {
@@ -82,13 +67,12 @@ export const websocketMiddleware: Middleware = (store) => (next) => (action) => 
             }))
           }
         }
+        // Ticker updates are handled by RxJS Channel Manager, not Redux
       } catch (error) {
-        console.error('❌ Error parsing WebSocket message:', error)
       }
     }
     
     websocketInstance.onclose = () => {
-      console.log('🔌 Singleton WebSocket disconnected')
       store.dispatch(disconnect())
       
       // Clear WebSocket instance in RxJS Channel Manager
@@ -97,14 +81,12 @@ export const websocketMiddleware: Middleware = (store) => (next) => (action) => 
       // Attempt reconnection after 3 seconds
       setTimeout(() => {
         if (websocketInstance?.readyState === WebSocket.CLOSED) {
-          console.log('🔄 Attempting singleton WebSocket reconnection...')
           store.dispatch(connect())
         }
       }, 3000)
     }
     
     websocketInstance.onerror = (error) => {
-      console.error('❌ Singleton WebSocket error:', error)
     }
   }
   
@@ -129,11 +111,9 @@ export const websocketMiddleware: Middleware = (store) => (next) => (action) => 
         platform: platform
       }
       
-      console.log('📡 Sending market subscription via singleton WebSocket:', subscriptionMessage)
       websocketInstance.send(JSON.stringify(subscriptionMessage))
       store.dispatch(markWebSocketSubscribed(marketId))
     } else {
-      console.warn('⚠️ Singleton WebSocket not connected, subscription will be pending')
     }
   }
   

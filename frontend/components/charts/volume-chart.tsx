@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts"
-import { generateVolumeData } from "@/lib/mock-data"
+import { generateVolumeData } from "@/lib/ChartStuff/mock-data"
 import type { Market } from "@/types/market"
 import { Badge } from "@/components/ui/badge"
 

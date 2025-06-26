@@ -1,6 +1,6 @@
 import { LineSeries as LightweightLineSeries, ISeriesApi, LineData, Time } from 'lightweight-charts'
 import SeriesClass from './BaseClass'
-import { SeriesClassConstructorOptions, MarketDataUpdate, MarketDataPoint } from '../../../lib/chart-types'
+import { SeriesClassConstructorOptions, MarketDataUpdate, MarketDataPoint } from '../../../lib/ChartStuff/chart-types'
 
 /**
  * MOVING AVERAGE OVERLAY COMPONENT
@@ -60,10 +60,11 @@ export class MovingAverage extends SeriesClass {
       if (this.subscriptionId) {
         console.log(`🔗 MovingAverage - Attempting subscription with ID: ${this.subscriptionId}`)
         
-        // Parse subscription ID format: "seriesType_timeRange_marketId"
-        const subscriptionParts = this.subscriptionId.split('_')
+        // Parse subscription ID format: "seriesType&timeRange&marketId"
+        const subscriptionParts = this.subscriptionId.split('&')
         if (subscriptionParts.length >= 3) {
-          const [seriesTypeStr, timeRange, marketId] = subscriptionParts
+          const [seriesTypeStr, timeRange, ...marketIdParts] = subscriptionParts
+          const marketId = marketIdParts.join('&') // Rejoin market ID parts that may contain '&'
           const side = seriesTypeStr.toLowerCase() as 'yes' | 'no'
           
           console.log(`📊 MovingAverage - Parsed subscription details:`, {

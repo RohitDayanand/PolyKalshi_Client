@@ -1,4 +1,4 @@
-import { SubscriptionConfig } from './chart-types'
+import { SubscriptionConfig } from './ChartStuff/chart-types'
 
 /**
  * DUMMY TEST DATA FOR MARKET DATA EMITTER
