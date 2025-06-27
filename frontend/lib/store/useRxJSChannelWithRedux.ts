@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { useSelector } from 'react-redux'
 import { Subscription } from 'rxjs'
-import { rxjsChannelManager, type TimeRange, type MarketSide, type DataPoint, type ChannelMessage } from '../RxJSChannelManager'
+import { rxjsChannelManager, type TimeRange, type MarketSide, type DataPoint, type ChannelMessage } from '../RxJSChannel'
 import { selectMarketSubscription, selectIsMarketSubscribed } from './apiSubscriptionSlice'
 
 interface UseRxJSChannelWithReduxOptions {

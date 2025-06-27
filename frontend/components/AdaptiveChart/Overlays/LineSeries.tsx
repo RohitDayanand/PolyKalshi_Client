@@ -1,8 +1,8 @@
 import { LineSeries as LightweightLineSeries, ISeriesApi, LineData, Time } from 'lightweight-charts'
 import SeriesClass from './BaseClass'
-import { SeriesClassConstructorOptions, MarketDataUpdate, MarketDataPoint } from '../../../lib/chart-types'
-import { seriesOptions } from '../../../lib/chart-config'
-import { marketDataEmitter } from '../../../lib/market-data-emitter'
+import { SeriesClassConstructorOptions, MarketDataUpdate, MarketDataPoint } from '../../../lib/ChartStuff/chart-types'
+import { seriesOptions } from '../../../lib/ChartStuff/chart-config'
+// import { marketDataEmitter } from '../../../lib/market-data-emitter' // No longer needed with RxJS channel manager
 
 export class LineSeries extends SeriesClass {
   private lineSeriesApi: ISeriesApi<'Line'> | null = null

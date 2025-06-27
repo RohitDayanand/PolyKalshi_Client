@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react'
 import { Subscription } from 'rxjs'
-import { rxjsChannelManager, type TimeRange, type MarketSide, type DataPoint, type ChannelMessage } from '../RxJSChannelManager'
+import { rxjsChannelManager, type TimeRange, type MarketSide, type DataPoint, type ChannelMessage } from '../RxJSChannel'
 
 interface UseRxJSChannelOptions {
   throttleMs?: number

@@ -131,7 +131,6 @@ export function VisualizationPanel() {
               </div>
               <Select value={market1?.id || ""} onValueChange={(value) => {
                 const selected = subscribedMarkets.find(m => m.id === value)
-                console.log(`🔍 [MARKET_ID_TRACE] Market #1 selected: id="${selected?.id}", platform="${selected?.platform}", title="${selected?.title}"`)
                 setMarket1(selected || null)
               }}>
                 <SelectTrigger className="w-full">
@@ -151,20 +150,17 @@ export function VisualizationPanel() {
             </CardHeader>
             <CardContent className="h-[500px] p-2">
               {market1 ? (
-                <>
-                  {console.log(`🔍 [MARKET_ID_TRACE] VisualizationPanel → AdaptiveChart (Market #1): marketId="${market1.id}", platform="${market1.platform}", title="${market1.title}"`)}
-                  <AdaptiveChart
-                    isVisible={true}
-                    showControls={true}
-                    containerHeight={500}
-                    className="market-1-chart w-full h-full"
-                    staticData={market1Data}
-                    setStaticData={setMarket1Data}
-                    chartId="market-1"
-                    platform={market1.platform}
-                    marketId={market1.id}
-                  />
-                </>
+                <AdaptiveChart
+                  isVisible={true}
+                  showControls={true}
+                  containerHeight={500}
+                  className="market-1-chart w-full h-full"
+                  staticData={market1Data}
+                  setStaticData={setMarket1Data}
+                  chartId="market-1"
+                  platform={market1.platform}
+                  marketId={market1.id}
+                />
               ) : (
                 <div className="flex items-center justify-center h-full text-muted-foreground">
                   Select a market to view chart
@@ -193,7 +189,6 @@ export function VisualizationPanel() {
               </div>
               <Select value={market2?.id || ""} onValueChange={(value) => {
                 const selected = subscribedMarkets.find(m => m.id === value)
-                console.log(`🔍 [MARKET_ID_TRACE] Market #2 selected: id="${selected?.id}", platform="${selected?.platform}", title="${selected?.title}"`)
                 setMarket2(selected || null)
               }}>
                 <SelectTrigger className="w-full">
@@ -213,20 +208,17 @@ export function VisualizationPanel() {
             </CardHeader>
             <CardContent className="h-[500px] p-2">
               {market2 ? (
-                <>
-                  {console.log(`🔍 [MARKET_ID_TRACE] VisualizationPanel → AdaptiveChart (Market #2): marketId="${market2.id}", platform="${market2.platform}", title="${market2.title}"`)}
-                  <AdaptiveChart
-                    isVisible={true}
-                    showControls={true}
-                    containerHeight={500}
-                    className="market-2-chart w-full h-full"
-                    staticData={market2Data}
-                    setStaticData={setMarket2Data}
-                    chartId="market-2"
-                    platform={market2.platform}
-                    marketId={market2.id}
-                  />
-                </>
+                <AdaptiveChart
+                  isVisible={true}
+                  showControls={true}
+                  containerHeight={500}
+                  className="market-2-chart w-full h-full"
+                  staticData={market2Data}
+                  setStaticData={setMarket2Data}
+                  chartId="market-2"
+                  platform={market2.platform}
+                  marketId={market2.id}
+                />
               ) : (
                 <div className="flex items-center justify-center h-full text-muted-foreground">
                   Select a market to view chart

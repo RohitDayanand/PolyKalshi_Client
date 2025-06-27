@@ -61,6 +61,13 @@ export const callSubscriptionAPI = createAsyncThunk(
       ? JSON.stringify(market.tokenIds || [market.id])  // Full token array as JSON
       : (market.kalshiTicker || market.id)              // Single ticker for Kalshi
     
+    console.log('🔍 Market Identifier Extraction:', { 
+      platform, 
+      marketTitle: market.title,
+      originalTokenIds: market.tokenIds,
+      originalKalshiTicker: market.kalshiTicker,
+      extractedIdentifier: marketIdentifier 
+    })
 
     const request: MarketSubscriptionRequest = {
       platform,
@@ -68,6 +75,13 @@ export const callSubscriptionAPI = createAsyncThunk(
       client_id: `frontend_${Date.now()}`
     }
 
+    console.log('📤 Calling Backend API:', {
+      url: 'http://localhost:8000/api/markets/subscribe',
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: request,
+      requestString: JSON.stringify(request)
+    })
 
     const response = await fetch('http://localhost:8000/api/markets/subscribe', {
       method: 'POST',
@@ -75,13 +89,30 @@ export const callSubscriptionAPI = createAsyncThunk(
       body: JSON.stringify(request)
     })
 
+    console.log('📡 HTTP Response Status:', {
+      status: response.status,
+      statusText: response.statusText,
+      ok: response.ok,
+      headers: Object.fromEntries(response.headers.entries())
+    })
 
     if (!response.ok) {
       const errorText = await response.text()
+      console.error('❌ HTTP Error Response:', errorText)
       throw new Error(`HTTP ${response.status}: ${response.statusText} - ${errorText}`)
     }
 
     const apiResponse: MarketSubscriptionResponse = await response.json()
+    console.log('📥 Backend API Response:', {
+      success: apiResponse.success,
+      status: apiResponse.status,
+      market_id: apiResponse.market_id,
+      platform: apiResponse.platform,
+      message: apiResponse.message,
+      websocket_url: apiResponse.websocket_url,
+      market_info: apiResponse.market_id,
+      fullResponse: apiResponse
+    })
 
     if (!apiResponse.success) {
       throw new Error(`Backend error: ${apiResponse.message}`)
@@ -98,6 +129,7 @@ export const apiSubscriptionSlice = createSlice({
     // Mark WebSocket subscription as completed
     markWebSocketSubscribed: (state, action: PayloadAction<string>) => {
       const backend_market_id = action.payload
+      console.log('🏪 Redux Reducer - apiSubscription/markWebSocketSubscribed:', backend_market_id)
       
       // Remove from pending list
       state.pendingWebSocketSubscriptions = state.pendingWebSocketSubscriptions.filter(
@@ -108,6 +140,7 @@ export const apiSubscriptionSlice = createSlice({
       const subscription = Object.values(state.subscriptions).find(
         sub => sub.backend_market_id === backend_market_id
       )
+      //Isn't this mutating state in place???
       if (subscription) {
         subscription.status = 'websocket_connected'
       }
@@ -119,6 +152,7 @@ export const apiSubscriptionSlice = createSlice({
       status: string
     }>) => {
       const { backend_market_id, status } = action.payload
+      console.log('🏪 Redux Reducer - apiSubscription/updateSubscriptionStatus:', { backend_market_id, status })
       
       const subscription = Object.values(state.subscriptions).find(
         sub => sub.backend_market_id === backend_market_id
@@ -131,6 +165,7 @@ export const apiSubscriptionSlice = createSlice({
     // Remove subscription
     removeSubscription: (state, action: PayloadAction<string>) => {
       const marketId = action.payload
+      console.log('🏪 Redux Reducer - apiSubscription/removeSubscription:', marketId)
       delete state.subscriptions[marketId]
     },
 
@@ -146,6 +181,7 @@ export const apiSubscriptionSlice = createSlice({
       })
       .addCase(callSubscriptionAPI.fulfilled, (state, action) => {
         const { apiResponse, market, platform } = action.payload
+        console.log('✅ API subscription successful:', apiResponse.market_id)
         
         state.isLoading = false
         
@@ -161,6 +197,7 @@ export const apiSubscriptionSlice = createSlice({
         state.pendingWebSocketSubscriptions.push(apiResponse.market_id)
       })
       .addCase(callSubscriptionAPI.rejected, (state, action) => {
+        console.error('❌ API subscription failed:', action.error.message)
         state.isLoading = false
         state.lastError = action.error.message || 'API call failed'
       })

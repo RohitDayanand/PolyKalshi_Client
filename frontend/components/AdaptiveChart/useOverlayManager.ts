@@ -12,7 +12,6 @@ import { Volume } from './Overlays/Volume'
 import { SeriesType, TimeRange, Overlay } from '../../lib/ChartStuff/chart-types'
 import { OVERLAY_REGISTRY } from '../../lib/ChartStuff/overlay-registry'
 import { generateSubscriptionId } from '../../lib/subscription-baseline'
-import { BASELINE_SUBSCRIPTION_IDS, getSubscriptionConfig } from '@/lib/subscription-baseline'
 import { useMarketSubscriptionState } from './hooks/useMarketSubscriptionState'
 
 /**
@@ -90,6 +89,10 @@ export function useOverlayManager({ chartInstanceRef, chartId, marketId, platfor
   // Memoize this in later iterations, make lookups more efficient
   const overlayInstancesRef = useRef<Map<string, SeriesClass>>(new Map())
 
+  /* @variable universal market id
+  *	 follows format marketId&side&range - where market id is in th
+  */
+  let universal_market_id: String | null = ""
 
   // Track previous state to detect changes
   const previousStateRef = useRef({
@@ -133,6 +136,7 @@ export function useOverlayManager({ chartInstanceRef, chartId, marketId, platfor
       const reduxSubscriptionId = getSubscriptionId(overlay.type, overlay.range)
       
       // Generate subscription ID with platform prefix to match WebSocket emission format
+      // @TODO: merge this into a singleton repo
       let realMarketSubscriptionId = null
       if (marketId && platform) {
         const platformPrefixedMarketId = `${platform.toLowerCase()}_${marketId}`
@@ -143,20 +147,12 @@ export function useOverlayManager({ chartInstanceRef, chartId, marketId, platfor
           platformPrefixedMarketId,
           subscriptionId: realMarketSubscriptionId
         })
-      } else if (marketId) {
-        // Fallback without platform prefix
-        realMarketSubscriptionId = generateSubscriptionId(overlay.type, overlay.range, marketId)
-        console.log(`⚠️ [NO_PLATFORM] Generated subscription ID without platform prefix:`, {
-          marketId,
-          subscriptionId: realMarketSubscriptionId,
-          reason: 'Platform not provided'
-        })
-      }
+      } 
       
-      const baselineSubscriptionId = BASELINE_SUBSCRIPTION_IDS[overlay.type][overlay.range]
-      
-      // Priority: real marketId (with platform) > Redux state > baseline fallback
-      const subscriptionId = realMarketSubscriptionId || reduxSubscriptionId || baselineSubscriptionId
+      console.error("first redux subscription id", reduxSubscriptionId, "then realMarketSubscriptionId", realMarketSubscriptionId)
+      // Priority: real marketId (with platform). No fallbacks
+      const subscriptionId = realMarketSubscriptionId
+	    universal_market_id = realMarketSubscriptionId
       
       // TRACE: Log subscription ID generation logic with enhanced details
       console.log(`🔍 [MARKET_ID_TRACE] useOverlayManager subscription ID generation [${chartId}]:`, {
@@ -169,7 +165,6 @@ export function useOverlayManager({ chartInstanceRef, chartId, marketId, platfor
         platformPrefixApplied: !!(marketId && platform),
         realMarketSubscriptionId: realMarketSubscriptionId || 'NONE',
         reduxSubscriptionId: reduxSubscriptionId || 'EMPTY',
-        baselineSubscriptionId,
         finalSubscriptionId: subscriptionId,
         sourceUsed: realMarketSubscriptionId ? 'REAL_MARKET_ID_WITH_PLATFORM' : (reduxSubscriptionId ? 'REDUX' : 'BASELINE')
       })
@@ -180,7 +175,7 @@ export function useOverlayManager({ chartInstanceRef, chartId, marketId, platfor
         range: overlay.range,
         finalSubscriptionId: subscriptionId,
         expectedChannelFormat: 'platform_marketId&side&range',
-        platformPrefixIncluded: subscriptionId.includes('_'),
+        platformPrefixIncluded: subscriptionId?.includes('_'),
         willMatchWebSocketEmission: !!(marketId && platform),
         willCreateChannel: !marketId ? 'YES - using baseline/redux ID' : 'MAYBE - using real market ID with platform'
       })
@@ -327,12 +322,8 @@ export function useOverlayManager({ chartInstanceRef, chartId, marketId, platfor
       overlayInstancesRef.current.forEach((instance, overlayKey) => {
         try {
           // Function to get new subscription ID for a given series type and range
-          const getNewSubscriptionId = (seriesType: SeriesType, range: string) => {
-            const timeRange = range as TimeRange
-            return getSubscriptionId(seriesType, timeRange) || BASELINE_SUBSCRIPTION_IDS[seriesType][timeRange]
-          }
-          
-          instance.setRange(selectedRange, getNewSubscriptionId)
+          setMarketId(selectedRange)
+          instance.setRange(selectedRange, universal_market_id)
           console.log(`📊 OverlayManager - Updated range for ${overlayKey} to ${selectedRange}`)
         } catch (error) {
           console.error(`❌ OverlayManager - Error updating range for ${overlayKey}:`, error)
@@ -445,6 +436,19 @@ export function useOverlayManager({ chartInstanceRef, chartId, marketId, platfor
     isOverlayCompatible
   ])
 
+  /*
+   * Settor and Gettor for universal market id based on side, range
+   *
+   * */
+   function setMarketId(newRange?: TimeRange, newView?: SeriesType ) {
+    if (! universal_market_id) {return console.error("Market id is null while attempting to set it locally")}
+  	let id_components: String[] = universal_market_id.split("&")
+  	if (newRange) { id_components[1] = newRange } 
+  	if (newView) { id_components[2] = newView.toLowerCase() }
+  	universal_market_id = id_components.join("&")
+   }
+
+
   /**
    * EFFECT: Ensure default price series overlays are enabled
    * This runs whenever view or range changes to auto-enable price series
@@ -553,6 +557,7 @@ export function useOverlayManager({ chartInstanceRef, chartId, marketId, platfor
       }
     })
   }, [])
+
 
   return {
     getActiveOverlays,

@@ -6,21 +6,21 @@ import json
 import logging
 import re
 import time
-from typing import Dict, List, Set, Optional
+import requests
+from typing import Dict, Optional
 from datetime import datetime
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from pyee.asyncio import AsyncIOEventEmitter
 import uvicorn
 from backend.channel_manager import (
     ChannelManager, 
-    create_all_subscription, 
     create_platform_subscription, 
     create_market_subscription,
     SubscriptionType
 )
+from backend.utils.util_functions import OHLC, quote_midprice
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -40,6 +40,12 @@ class MarketSubscriptionResponse(BaseModel):
     message: str
     websocket_url: str
     estimated_time_seconds: Optional[int] = None
+    market_info: Dict[str, str] = Field(default_factory=dict)
+
+class KalshiCandlestickResponse(BaseModel):
+    success: bool
+    data: Optional[Dict] = None
+    error: Optional[str] = None
     market_info: Dict[str, str] = Field(default_factory=dict)
 
 class ConnectionState:
@@ -93,6 +99,8 @@ class TickerStreamManager:
         """Accept new WebSocket connection"""
         await websocket.accept()
         self.channel_manager.add_connection(websocket)
+        logger.info(f"✅ STREAM MANAGER: WebSocket connection established and added to channel manager")
+        logger.info(f"📊 STREAM MANAGER: Total connections: {len(self.channel_manager.connections)}")
     
     def disconnect(self, websocket: WebSocket):
         """Handle WebSocket disconnection"""
@@ -101,9 +109,13 @@ class TickerStreamManager:
     def subscribe_to_market(self, websocket: WebSocket, market_id: str):
         """Subscribe WebSocket to specific market updates"""
         logger.info(f"🎯 STREAM MANAGER: Subscribing websocket to market: {market_id}")
+        logger.info(f"📊 STREAM MANAGER: WebSocket is in connections: {websocket in self.channel_manager.connections}")
+        logger.info(f"📊 STREAM MANAGER: Total connections before subscription: {len(self.channel_manager.connections)}")
         subscription = create_market_subscription(market_id)
+        logger.info(f"🔧 STREAM MANAGER: Created subscription filter: {subscription}")
         self.channel_manager.subscribe(websocket, subscription)
         logger.info(f"✅ STREAM MANAGER: Market subscription completed for: {market_id}")
+        logger.info(f"📊 STREAM MANAGER: Total active subscriptions after: {self.channel_manager.stats['active_subscriptions']}")
     
     def subscribe_to_platform(self, websocket: WebSocket, platform: str):
         """Subscribe WebSocket to specific platform updates"""
@@ -154,6 +166,117 @@ def generate_market_id(platform: str, identifier: str) -> str:
     """Generate standardized market_id for WebSocket subscriptions"""
     return f"{platform}_{identifier}"
 
+def parse_market_string_id(market_string_id: str) -> Dict[str, str]:
+    """Parse marketStringId format: ticker&side&range"""
+    try:
+        market_elements = market_string_id.split("&")
+        if len(market_elements) < 3:
+            raise ValueError("Invalid market_string_id format. Expected: ticker&side&range")
+        
+        ticker = re.sub(r"^(kalshi_|polymarket_)", "", market_elements[0])
+        side = market_elements[1] 
+        range_str = market_elements[2]
+        
+        # Extract series ticker from market ticker (split by - or _, take first part)
+        series_ticker = re.split(r'[-_]', ticker)[1]
+        
+        return {
+            "market_ticker": ticker,
+            "series_ticker": series_ticker,
+            "side": side,
+            "range": range_str
+        }
+    except Exception as e:
+        raise ValueError(f"Failed to parse market_string_id: {str(e)}")
+
+def map_time_range_to_period_interval(time_range: str) -> int:
+    """Map frontend time ranges to Kalshi period intervals"""
+    time_range_mapping = {
+        "1H": 1,     # 1 minute
+        "1W": 60,    # 60 minutes  
+        "1M": 1440,  # 1440 minutes (1 day)
+        "1Y": 1440   # 1440 minutes (1 day) - closest available
+    }
+    
+    if time_range not in time_range_mapping:
+        raise ValueError(f"Unsupported time range: {time_range}. Supported: {list(time_range_mapping.keys())}")
+    
+    return time_range_mapping[time_range]
+
+async def fetch_kalshi_candlesticks(series_ticker: str, market_ticker: str, start_ts: int, end_ts: int, period_interval: int) -> Dict:
+    """Fetch candlestick data from Kalshi API"""
+    try:
+        url = f"https://api.elections.kalshi.com/trade-api/v2/series/{series_ticker}/markets/{market_ticker}/candlesticks"
+        
+        params = {
+            "start_ts": start_ts,
+            "end_ts": end_ts,
+            "period_interval": period_interval
+        }
+        
+        headers = {
+            "accept": "application/json"
+        }
+        
+        logger.info(f"Fetching Kalshi candlesticks: {url} with params: {params}")
+        
+        response = requests.get(url, headers=headers, params=params, timeout=10)
+        response.raise_for_status()
+        
+        data = response.json()
+        logger.info(f"Successfully fetched Kalshi candlesticks: {len(data.get('candlesticks', []))} candles")
+        
+        return data
+        
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Kalshi API request failed: {str(e)}")
+        raise HTTPException(status_code=502, detail=f"Failed to fetch data from Kalshi API: {str(e)}")
+    except Exception as e:
+        logger.error(f"Unexpected error fetching Kalshi candlesticks: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error while fetching candlestick data")
+
+def process_kalshi_candlesticks(raw_data: Dict, market_info: Dict[str, str]) -> Dict:
+    """Process raw Kalshi candlestick data for frontend consumption"""
+    try:
+        candlesticks = raw_data.get('candlesticks', [])
+        
+        processed_data = {
+            "candlesticks": [],
+            "metadata": {
+                "count": len(candlesticks),
+                "market_ticker": market_info.get('market_ticker'),
+                "series_ticker": market_info.get('series_ticker'),
+                "side": market_info.get('side'),
+                "range": market_info.get('range'),
+                "period_interval": raw_data.get('period_interval'),
+                "processed_at": datetime.now().isoformat()
+            }
+        }
+        
+        # Process each candlestick
+        for candle in candlesticks:
+            yes_bid = candle.get("yes_bid")
+            yes_ask = candle.get("yes_ask")
+
+            processed_candle = {
+                "time": candle.get('end_period_ts'),
+                "open": quote_midprice(yes_bid, yes_ask, OHLC.OPEN),
+                "high": quote_midprice(yes_bid, yes_ask, OHLC.HIGH), 
+                "low": quote_midprice(yes_bid, yes_ask, OHLC.LOW),
+                "close": quote_midprice(yes_bid, yes_ask, OHLC.CLOSE),
+                "volume": candle.get("volume", 0),
+                "price": quote_midprice(yes_bid, yes_ask, OHLC.CLOSE),
+                "open_interest": candle.get("open_interest", 0)
+            }
+            processed_data["candlesticks"].append(processed_candle)
+        
+        logger.info(f"Processed {len(processed_data['candlesticks'])} candlesticks")
+        return processed_data
+        
+    except Exception as e:
+        logger.error(f"Failed to process Kalshi candlestick data: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to process candlestick data")
+
 # Global MarketsManager instance (initialized on app startup)
 markets_manager = None
 
@@ -161,7 +284,7 @@ async def initialize_markets_manager():
     """Initialize MarketsManager during app startup when event loop is available"""
     global markets_manager
     try:
-        from .master_manager.MarketsManager import MarketsManager
+        from backend.master_manager.MarketsManager import MarketsManager
         markets_manager = MarketsManager()
         logger.info("MarketsManager initialized successfully")
         return True
@@ -257,10 +380,12 @@ async def startup_event():
 @app.websocket("/ws/ticker")
 async def websocket_ticker_endpoint(websocket: WebSocket):
     """Main WebSocket endpoint for ticker streaming with multiplexed subscriptions"""
-    logger.info(f"🔌 WebSocket connection attempt from {websocket.client}")
+    client_info = f"{websocket.client.host}:{websocket.client.port}" if websocket.client else "unknown"
+    logger.info(f"🔌 WebSocket connection attempt from {client_info}")
+    logger.info(f"🔌 WebSocket object ID: {id(websocket)}")
     
     await stream_manager.connect(websocket)
-    logger.info(f"✅ WebSocket connected successfully from {websocket.client}")
+    logger.info(f"✅ WebSocket connected successfully from {client_info}")
     
     try:
         while True:
@@ -346,11 +471,11 @@ async def websocket_ticker_endpoint(websocket: WebSocket):
                 }))
                 
     except WebSocketDisconnect:
-        logger.info(f"🔌 WebSocket disconnected: {websocket.client}")
+        logger.info(f"🔌 WebSocket disconnected: {client_info} (ID: {id(websocket)})")
     except Exception as e:
-        logger.error(f"💥 Unexpected WebSocket error: {e}")
+        logger.error(f"💥 Unexpected WebSocket error: {e} for {client_info} (ID: {id(websocket)})")
     finally:
-        logger.info(f"🧹 Cleaning up WebSocket connection: {websocket.client}")
+        logger.info(f"🧹 Cleaning up WebSocket connection: {client_info} (ID: {id(websocket)})")
         stream_manager.disconnect(websocket)
 
 @app.get("/health")
@@ -478,6 +603,81 @@ async def subscribe_to_market(request: MarketSubscriptionRequest):
         logger.error(f"💥 Unexpected error in market subscription: {e} (took {elapsed_time:.3f}s)")
         logger.error(f"💥 Full exception details:", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error during market subscription")
+
+@app.get("/api/kalshi/candlesticks", response_model=KalshiCandlestickResponse)
+async def get_kalshi_candlesticks(
+    market_string_id: str = Query(..., description="Market string in format: ticker&side&range"),
+    start_ts: int = Query(..., description="Start timestamp (Unix seconds)"),
+    end_ts: int = Query(..., description="End timestamp (Unix seconds)")
+):
+    """
+    Fetch historical candlestick data from Kalshi API
+    
+    This endpoint:
+    1. Parses market_string_id to extract ticker, side, and range
+    2. Maps time range to Kalshi period intervals (1H→1min, 1W→60min, 1M→1440min)
+    3. Extracts series ticker from market ticker (split by - or _, take first part)
+    4. Calls Kalshi candlesticks API with proper parameters
+    5. Processes and returns standardized candlestick data
+    
+    Example usage:
+    GET /api/kalshi/candlesticks?market_string_id=PRES24-DJT-Y&side&1H&start_ts=1750966620&end_ts=1750970220
+    """
+    start_time = time.time()
+    
+    try:
+        logger.info(f"📥 Kalshi candlesticks request: market_string_id={market_string_id}, start_ts={start_ts}, end_ts={end_ts}")
+        
+        # Parse market string ID
+        market_info = parse_market_string_id(market_string_id)
+        logger.info(f"🔍 Parsed market info: {market_info}")
+        
+        # Map time range to period interval
+        period_interval = map_time_range_to_period_interval(market_info["range"])
+        logger.info(f"🕐 Mapped range '{market_info['range']}' to period_interval: {period_interval}")
+        
+        # Fetch candlestick data from Kalshi
+        raw_data = await fetch_kalshi_candlesticks(
+            series_ticker=market_info["series_ticker"],
+            market_ticker=market_info["market_ticker"],
+            start_ts=start_ts,
+            end_ts=end_ts,
+            period_interval=period_interval
+        )
+        
+        # Process the raw data
+        processed_data = process_kalshi_candlesticks(raw_data, market_info)
+        
+        elapsed_time = time.time() - start_time
+        logger.info(f"✅ Kalshi candlesticks request completed successfully (took {elapsed_time:.3f}s)")
+        
+        return KalshiCandlestickResponse(
+            success=True,
+            data=processed_data,
+            market_info={
+                "market_ticker": market_info["market_ticker"],
+                "series_ticker": market_info["series_ticker"],
+                "side": market_info["side"],
+                "range": market_info["range"],
+                "period_interval": str(period_interval),
+                "request_duration_seconds": f"{elapsed_time:.3f}"
+            }
+        )
+        
+    except ValueError as e:
+        elapsed_time = time.time() - start_time
+        logger.warning(f"⚠️ Kalshi candlesticks validation error: {e} (took {elapsed_time:.3f}s)")
+        raise HTTPException(status_code=400, detail=str(e))
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions from helper functions
+        raise
+        
+    except Exception as e:
+        elapsed_time = time.time() - start_time
+        logger.error(f"💥 Unexpected error in Kalshi candlesticks: {e} (took {elapsed_time:.3f}s)")
+        logger.error(f"💥 Full exception details:", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error while fetching candlestick data")
 
 # TODO: Add disconnect endpoint (placeholder for future implementation)
 # @app.post("/api/markets/disconnect")

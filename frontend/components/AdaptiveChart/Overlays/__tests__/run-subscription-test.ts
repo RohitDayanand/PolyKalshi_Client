@@ -9,7 +9,7 @@ import { IChartApi, createChart } from 'lightweight-charts'
 import { LineSeries } from '../LineSeries'
 import { MovingAverage } from '../MovingAverage'
 import { BASELINE_SUBSCRIPTION_IDS } from '../../../../lib/subscription-baseline'
-import { rxjsChannelManager } from '../../../../lib/RxJSChannelManager'
+import { rxjsChannelManager } from '../../../../lib/RxJSChannel'
 
 // Create DOM environment for tests
 if (typeof document === 'undefined') {

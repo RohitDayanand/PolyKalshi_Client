@@ -102,7 +102,9 @@ export function AdaptiveChart({
     activeOverlayCount 
   } = useOverlayManager({ 
     chartInstanceRef,
-    chartId 
+    chartId, 
+    marketId,
+    platform
   })
 
   // Effect to capture original container dimensions when first rendered
