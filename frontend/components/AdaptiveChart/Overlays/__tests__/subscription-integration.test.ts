@@ -12,7 +12,7 @@
 import { IChartApi, createChart } from 'lightweight-charts'
 import { LineSeries } from '../LineSeries'
 import { MovingAverage } from '../MovingAverage'
-import { rxjsChannelManager } from '../../../../lib/RxJSChannelManager'
+import { rxjsChannelManager } from '../../../../lib/RxJSChannel'
 import { SeriesType, TimeRange } from '../../../../lib/ChartStuff/chart-types'
 import { BASELINE_SUBSCRIPTION_IDS } from '../../../../lib/subscription-baseline'
 

@@ -10,3 +10,6 @@
 - Do a typecheck when you're done making series of code changges
 - Only run single tests, and organize these tests in a /tests folder inside the directory you are in to not clutter main logic
 
+
+#Allowed commands
+- You are allowed to read anything in the codebase, however you must prompt the user before you create changes. 

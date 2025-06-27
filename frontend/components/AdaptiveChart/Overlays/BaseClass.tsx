@@ -31,8 +31,8 @@ import { IChartApi, ISeriesApi, UTCTimestamp } from 'lightweight-charts'
 import { SeriesType, SeriesClassConstructorOptions, MarketDataUpdate, MarketDataPoint, TimeRange } from '../../../lib/ChartStuff/chart-types'
 import { useMarketSubscriptionState } from '../hooks/useMarketSubscriptionState'
 import { useChartRangeState } from '../hooks/useChartRangeState'
-import { rxjsChannelManager } from '../../../lib/RxJSChannelManager'
-import type { MarketSide, ChannelMessage, DataPoint } from '../../../lib/RxJSChannelManager'
+import { rxjsChannelManager } from '../../../lib/RxJSChannel'
+import type { MarketSide, ChannelMessage, DataPoint } from '../../../lib/RxJSChannel'
 import { getVisibleRangeStart, toUtcTimestamp } from '../../../lib/time-horizontalscale'
 import { Subscription } from 'rxjs'
 
@@ -342,12 +342,10 @@ export default abstract class SeriesClass {
    * NEW: Range switching functionality
    * Switches the series to a new time range by changing subscription
    */
-  async setRange(newRange: TimeRange, getNewSubscriptionId: (seriesType: SeriesType, range: string) => string): Promise<void> {
+  async setRange(newRange: TimeRange, newSubscriptionId: String | null) {
     try {
       console.log(`🔄 BaseClass ${this.seriesType} - Switching range to: ${newRange}`)
       
-      // Get the new subscription ID for this series type and range
-      const newSubscriptionId = getNewSubscriptionId(this.seriesType, newRange)
       
       if (!newSubscriptionId) {
         console.error(`❌ BaseClass ${this.seriesType} - No subscription ID found for range: ${newRange}`)

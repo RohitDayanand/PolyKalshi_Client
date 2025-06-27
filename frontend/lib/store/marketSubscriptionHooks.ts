@@ -41,14 +41,23 @@ export const useMarketSubscription = () => {
       // Step 1: Call backend API to establish market connection
       const result = await dispatch(callSubscriptionAPI({ platform, market })).unwrap()
       
+      console.log('🔍 API Response:', result.apiResponse)
+      console.log('🔍 Market ID from API:', result.apiResponse.market_id)
+      console.log('🔍 Full result object:', result)
+      console.log('🔍 Market ID exists?', !!result.apiResponse.market_id)
+      console.log('🔍 Market ID value:', JSON.stringify(result.apiResponse.market_id))
+      
       // Step 2: Send subscription message via singleton WebSocket (handled by middleware)
       if (result.apiResponse.market_id) {
+        console.log('✅ Dispatching WebSocket subscription for:', result.apiResponse.market_id)
         dispatch(subscribeToMarketAction({
           marketId: result.apiResponse.market_id,
           platform: platform
         }))
         
         console.log('✅ Market subscription dispatched to singleton WebSocket')
+      } else {
+        console.warn('❌ No market_id in API response - WebSocket subscription skipped!')
       }
       
       console.log('✅ Market subscription process completed')

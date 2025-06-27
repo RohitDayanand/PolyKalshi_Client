@@ -1,6 +1,6 @@
 import { Middleware } from '@reduxjs/toolkit'
 import { markWebSocketSubscribed } from './apiSubscriptionSlice'
-import { rxjsChannelManager } from '../RxJSChannelManager'
+import { rxjsChannelManager } from '../RxJSChannel'
 
 export const rxjsSubscriptionMiddleware: Middleware = (store) => (next) => (action) => {
   const result = next(action)
