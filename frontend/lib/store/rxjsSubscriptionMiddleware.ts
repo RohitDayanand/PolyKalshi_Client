@@ -7,6 +7,8 @@ export const rxjsSubscriptionMiddleware: Middleware = (store) => (next) => (acti
   
   // Intercept markWebSocketSubscribed actions
   if (markWebSocketSubscribed.match(action)) {
+
+    //@TODO - add good comments and documentation for the formatting of the backend id
     const backendMarketId = action.payload
     
     console.log('🎯 RxJSSubscriptionMiddleware: Intercepted markWebSocketSubscribed for:', backendMarketId)

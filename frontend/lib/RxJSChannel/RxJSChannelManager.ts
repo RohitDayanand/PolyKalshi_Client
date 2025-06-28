@@ -125,9 +125,10 @@ export class RxJSChannelManager {
    */
   onMarketSubscribed(marketId: string, platform: Platform): void {
     console.log(`🎯 [CHANNEL_MANAGER] Market subscribed: ${marketId} on ${platform}`)
+    console.log("I have an obvious error, yet I am being called ?")
     
     const sides: MarketSide[] = ['yes', 'no']
-    const ranges: TimeRange[] = TIME_RANGES
+    const ranges: TimeRange[] = [...TIME_RANGES]
     
     let channelsCreated = 0
     
@@ -236,15 +237,6 @@ export class RxJSChannelManager {
    */
   getConnectionStatus(): Observable<boolean> {
     return this.webSocketHandler.getConnectionStatus()
-  }
-
-  /**
-   * Get current cache for a channel (legacy method)
-   */
-  getChannelCache(marketId: string, side: MarketSide, range: TimeRange): DataPoint[] {
-    const channelKey = ChannelCache.generateChannelKey(marketId, side, range)
-    const channelConfig = this.channels.get(channelKey)
-    return channelConfig ? [...channelConfig.cache] : []
   }
 
   /**

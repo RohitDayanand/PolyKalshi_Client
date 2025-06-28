@@ -23,12 +23,6 @@ export const chartViewSlice = createSlice({
   reducers: {
     setSelectedView: (state, action: PayloadAction<{ chartId: string; view: SeriesView }>) => {
       const { chartId, view } = action.payload
-      console.log('🏪 Redux Reducer - chartView/setSelectedView:', {
-        chartId,
-        previousView: state.chartInstances[chartId]?.selectedView,
-        newView: view,
-        timestamp: new Date().toISOString()
-      })
       
       // Initialize chart instance if it doesn't exist
       if (!state.chartInstances[chartId]) {
@@ -40,13 +34,11 @@ export const chartViewSlice = createSlice({
     initializeChartInstance: (state, action: PayloadAction<string>) => {
       const chartId = action.payload
       if (!state.chartInstances[chartId]) {
-        console.log('🏪 Redux Reducer - chartView/initializeChartInstance:', chartId)
         state.chartInstances[chartId] = getDefaultInstanceState()
       }
     },
     removeChartInstance: (state, action: PayloadAction<string>) => {
       const chartId = action.payload
-      console.log('🏪 Redux Reducer - chartView/removeChartInstance:', chartId)
       delete state.chartInstances[chartId]
     }
   }

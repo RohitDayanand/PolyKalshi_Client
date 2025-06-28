@@ -6,7 +6,6 @@ import json
 import logging
 import re
 import time
-import requests
 from typing import Dict, Optional
 from datetime import datetime
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query
@@ -15,16 +14,27 @@ from pydantic import BaseModel, Field
 from pyee.asyncio import AsyncIOEventEmitter
 import uvicorn
 from backend.channel_manager import (
-    ChannelManager, 
-    create_platform_subscription, 
+    ChannelManager,
     create_market_subscription,
     SubscriptionType
 )
-from backend.utils.util_functions import OHLC, quote_midprice
+from backend.master_manager.kalshi_client.kalshi_candlestick_processor import (
+    fetch_kalshi_candlesticks,
+    process_kalshi_candlesticks,
+    map_time_range_to_period_interval
+)
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),  # Console output
+        logging.FileHandler('/home/rohit/Websocket_Polymarket_Kalshi/backend/websocket_debug.log', mode='w')  # File output
+    ]
+)
 logger = logging.getLogger(__name__)
+logger.info("📝 Logging to both console and websocket_debug.log")
 
 # Pydantic models for API requests/responses
 class MarketSubscriptionRequest(BaseModel):
@@ -88,8 +98,14 @@ connection_state_manager = ConnectionState()
 class TickerStreamManager:
     """Manages WebSocket connections and ticker update streaming using advanced channel manager"""
     
-    def __init__(self):
-        self.channel_manager = ChannelManager()
+    def __init__(self, channel_manager=None):
+        # Use provided channel_manager or import global one
+        if channel_manager:
+            self.channel_manager = channel_manager
+        else:
+            from backend.global_manager import global_channel_manager
+            self.channel_manager = global_channel_manager
+        
         self.event_emitter = AsyncIOEventEmitter()
         
         # Set up event listeners
@@ -189,93 +205,6 @@ def parse_market_string_id(market_string_id: str) -> Dict[str, str]:
     except Exception as e:
         raise ValueError(f"Failed to parse market_string_id: {str(e)}")
 
-def map_time_range_to_period_interval(time_range: str) -> int:
-    """Map frontend time ranges to Kalshi period intervals"""
-    time_range_mapping = {
-        "1H": 1,     # 1 minute
-        "1W": 60,    # 60 minutes  
-        "1M": 1440,  # 1440 minutes (1 day)
-        "1Y": 1440   # 1440 minutes (1 day) - closest available
-    }
-    
-    if time_range not in time_range_mapping:
-        raise ValueError(f"Unsupported time range: {time_range}. Supported: {list(time_range_mapping.keys())}")
-    
-    return time_range_mapping[time_range]
-
-async def fetch_kalshi_candlesticks(series_ticker: str, market_ticker: str, start_ts: int, end_ts: int, period_interval: int) -> Dict:
-    """Fetch candlestick data from Kalshi API"""
-    try:
-        url = f"https://api.elections.kalshi.com/trade-api/v2/series/{series_ticker}/markets/{market_ticker}/candlesticks"
-        
-        params = {
-            "start_ts": start_ts,
-            "end_ts": end_ts,
-            "period_interval": period_interval
-        }
-        
-        headers = {
-            "accept": "application/json"
-        }
-        
-        logger.info(f"Fetching Kalshi candlesticks: {url} with params: {params}")
-        
-        response = requests.get(url, headers=headers, params=params, timeout=10)
-        response.raise_for_status()
-        
-        data = response.json()
-        logger.info(f"Successfully fetched Kalshi candlesticks: {len(data.get('candlesticks', []))} candles")
-        
-        return data
-        
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Kalshi API request failed: {str(e)}")
-        raise HTTPException(status_code=502, detail=f"Failed to fetch data from Kalshi API: {str(e)}")
-    except Exception as e:
-        logger.error(f"Unexpected error fetching Kalshi candlesticks: {str(e)}")
-        raise HTTPException(status_code=500, detail="Internal server error while fetching candlestick data")
-
-def process_kalshi_candlesticks(raw_data: Dict, market_info: Dict[str, str]) -> Dict:
-    """Process raw Kalshi candlestick data for frontend consumption"""
-    try:
-        candlesticks = raw_data.get('candlesticks', [])
-        
-        processed_data = {
-            "candlesticks": [],
-            "metadata": {
-                "count": len(candlesticks),
-                "market_ticker": market_info.get('market_ticker'),
-                "series_ticker": market_info.get('series_ticker'),
-                "side": market_info.get('side'),
-                "range": market_info.get('range'),
-                "period_interval": raw_data.get('period_interval'),
-                "processed_at": datetime.now().isoformat()
-            }
-        }
-        
-        # Process each candlestick
-        for candle in candlesticks:
-            yes_bid = candle.get("yes_bid")
-            yes_ask = candle.get("yes_ask")
-
-            processed_candle = {
-                "time": candle.get('end_period_ts'),
-                "open": quote_midprice(yes_bid, yes_ask, OHLC.OPEN),
-                "high": quote_midprice(yes_bid, yes_ask, OHLC.HIGH), 
-                "low": quote_midprice(yes_bid, yes_ask, OHLC.LOW),
-                "close": quote_midprice(yes_bid, yes_ask, OHLC.CLOSE),
-                "volume": candle.get("volume", 0),
-                "price": quote_midprice(yes_bid, yes_ask, OHLC.CLOSE),
-                "open_interest": candle.get("open_interest", 0)
-            }
-            processed_data["candlesticks"].append(processed_candle)
-        
-        logger.info(f"Processed {len(processed_data['candlesticks'])} candlesticks")
-        return processed_data
-        
-    except Exception as e:
-        logger.error(f"Failed to process Kalshi candlestick data: {str(e)}")
-        raise HTTPException(status_code=500, detail="Failed to process candlestick data")
 
 # Global MarketsManager instance (initialized on app startup)
 markets_manager = None
@@ -707,7 +636,9 @@ async def publish_ticker_update(ticker_data: dict):
         "timestamp": unix_timestamp
     }
     """
-    await stream_manager.emit_ticker_update(ticker_data)
+    # Use global channel manager directly to ensure same instance
+    from backend.global_manager import global_channel_manager
+    await global_channel_manager.broadcast_ticker_update(ticker_data)
 
 if __name__ == "__main__":
     uvicorn.run(

@@ -11,12 +11,10 @@ export class LineSeries extends SeriesClass {
     super(options)
     try {
       this.seriesApi = this.createSeries()
-      console.log(`✅ SeriesClass - Created ${this.seriesType} series with subscription ID: ${this.subscriptionId}`)
       
       // Auto-subscribe to market data if subscription ID exists
       // Parse subscription ID to extract marketId, side, and timeRange
       if (this.subscriptionId) {
-        console.log(`🔗 LineSeries - Attempting subscription with ID: ${this.subscriptionId}`)
         
         // Parse subscription ID format: "marketId&side&timeRange" (RxJS format)
         const subscriptionParts = this.subscriptionId.split('&')
@@ -25,36 +23,16 @@ export class LineSeries extends SeriesClass {
           // Ensure side is lowercase to match RxJS MarketSide type
           const side = sideStr.toLowerCase() as 'yes' | 'no'
           
-          console.log(`🔍 [SUBSCRIPTION_ATTEMPT] LineSeries parsing subscription ID:`, {
-            originalSubscriptionId: this.subscriptionId,
-            parsedMarketId: marketId,
-            parsedSide: side,
-            parsedTimeRange: timeRange,
-            seriesType: this.seriesType,
-            conversionFromSeriesType: `${this.seriesType} -> ${side}`
-          })
           
-          console.log(`🔍 [SUBSCRIPTION_ATTEMPT] LineSeries attempting to subscribe with:`, {
-            marketId,
-            side,
-            timeRange,
-            targetChannelKey: `${marketId}&${side}&${timeRange}`
-          })
           
           this.subscribe(marketId, side, timeRange as any)
         } else {
-          console.error(`🔍 [SUBSCRIPTION_ERROR] LineSeries - Invalid subscription ID format:`, {
-            subscriptionId: this.subscriptionId,
-            expectedFormat: 'marketId&side&timeRange',
-            actualParts: subscriptionParts,
-            partCount: subscriptionParts.length
-          })
+          // Invalid subscription ID format
         }
       } else {
-        console.warn(`⚠️ LineSeries - No subscription ID provided for ${this.seriesType} series`)
+        // No subscription ID provided
       }
     } catch (error) {
-      console.error(`❌ SeriesClass - Failed to create ${this.seriesType} series:`, error)
       this.onError(`Failed to create series: ${error}`)
     }
 
@@ -78,12 +56,9 @@ export class LineSeries extends SeriesClass {
         crosshairMarkerVisible: true,
       })
 
-      console.log(`✅ LineSeries - Created ${this.seriesType} line series with color: ${seriesConfig.color}`)
-      console.log(`🔗 LineSeries - Will be stored in BaseClass.seriesApi for market data handling`)
       
       return this.lineSeriesApi
     } catch (error) {
-      console.error(`❌ LineSeries - Failed to create ${this.seriesType} line series:`, error)
       throw error
     }
   }

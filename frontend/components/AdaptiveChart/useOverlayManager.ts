@@ -77,7 +77,6 @@ const BOTTOM_CLASS_MAP: string[] = [
 
 export function useOverlayManager({ chartInstanceRef, chartId, marketId, platform }: UseOverlayManagerProps) {
   // TRACE: Log useOverlayManager reception - now showing what it receives
-  console.log(`🔍 [MARKET_ID_TRACE] useOverlayManager received [${chartId}]: chartInstanceRef=${!!chartInstanceRef}, chartId="${chartId}", marketId="${marketId}", platform="${platform}"`)
   
   // Redux state hooks - now using chartId for isolated state
   const { overlays, addOverlay } = useOverlayState(chartId)
@@ -115,7 +114,6 @@ export function useOverlayManager({ chartInstanceRef, chartId, marketId, platfor
   const createOverlayInstance = useCallback((overlayKey: string, overlay: Overlay): SeriesClass | null => {
     const chartInstance = chartInstanceRef.current
     if (!chartInstance) {
-      console.warn('🔧 OverlayManager - Cannot create overlay, no chart instance:', overlayKey)
       return null
     }
 
@@ -126,7 +124,6 @@ export function useOverlayManager({ chartInstanceRef, chartId, marketId, platfor
     const OverlayClass = getOverlayClass(overlayName)
     
     if (!OverlayClass) {
-      console.warn(`🔧 OverlayManager - No class found for overlay: ${overlayName}`)
       return null
     }
 
@@ -141,44 +138,14 @@ export function useOverlayManager({ chartInstanceRef, chartId, marketId, platfor
       if (marketId && platform) {
         const platformPrefixedMarketId = `${platform.toLowerCase()}_${marketId}`
         realMarketSubscriptionId = generateSubscriptionId(overlay.type, overlay.range, platformPrefixedMarketId)
-        console.log(`🔍 [PLATFORM_PREFIX] Generated subscription ID with platform prefix:`, {
-          originalMarketId: marketId,
-          platform,
-          platformPrefixedMarketId,
-          subscriptionId: realMarketSubscriptionId
-        })
       } 
       
-      console.error("first redux subscription id", reduxSubscriptionId, "then realMarketSubscriptionId", realMarketSubscriptionId)
       // Priority: real marketId (with platform). No fallbacks
       const subscriptionId = realMarketSubscriptionId
 	    universal_market_id = realMarketSubscriptionId
       
       // TRACE: Log subscription ID generation logic with enhanced details
-      console.log(`🔍 [MARKET_ID_TRACE] useOverlayManager subscription ID generation [${chartId}]:`, {
-        overlayType: overlay.type,
-        overlayRange: overlay.range,
-        hasMarketId: !!marketId,
-        hasPlatform: !!platform,
-        originalMarketId: marketId || 'NONE',
-        platform: platform || 'NONE',
-        platformPrefixApplied: !!(marketId && platform),
-        realMarketSubscriptionId: realMarketSubscriptionId || 'NONE',
-        reduxSubscriptionId: reduxSubscriptionId || 'EMPTY',
-        finalSubscriptionId: subscriptionId,
-        sourceUsed: realMarketSubscriptionId ? 'REAL_MARKET_ID_WITH_PLATFORM' : (reduxSubscriptionId ? 'REDUX' : 'BASELINE')
-      })
       
-      console.log(`🔍 [CHANNEL_MATCH] useOverlayManager final subscription details [${chartId}]:`, {
-        overlayKey,
-        seriesType: overlay.type,
-        range: overlay.range,
-        finalSubscriptionId: subscriptionId,
-        expectedChannelFormat: 'platform_marketId&side&range',
-        platformPrefixIncluded: subscriptionId?.includes('_'),
-        willMatchWebSocketEmission: !!(marketId && platform),
-        willCreateChannel: !marketId ? 'YES - using baseline/redux ID' : 'MAYBE - using real market ID with platform'
-      })
       
       const instance = new OverlayClass({
         chartInstance,
@@ -186,17 +153,9 @@ export function useOverlayManager({ chartInstanceRef, chartId, marketId, platfor
         subscriptionId
       })
       
-      console.log(`✅ OverlayManager - Created overlay instance:`, {
-        key: overlayKey,
-        class: OverlayClass.name,
-        type: overlay.type,
-        range: overlay.range,
-        subscriptionId
-      })
       
       return instance
     } catch (error) {
-      console.error(`❌ OverlayManager - Failed to create overlay ${overlayKey}:`, error)
       return null
     }
   }, [getOverlayClass, getSubscriptionId])
@@ -210,9 +169,8 @@ export function useOverlayManager({ chartInstanceRef, chartId, marketId, platfor
       try {
         instance.remove()
         overlayInstancesRef.current.delete(overlayKey)
-        console.log(`🗑️ OverlayManager - Destroyed overlay instance: ${overlayKey}`)
       } catch (error) {
-        console.error(`❌ OverlayManager - Error destroying overlay ${overlayKey}:`, error)
+        // Error destroying overlay
       }
     }
   }, [])
@@ -247,7 +205,6 @@ export function useOverlayManager({ chartInstanceRef, chartId, marketId, platfor
           enabled: true,
           available: true
         })
-        console.log(`🎯 OverlayManager - Auto-enabled default YES price series: ${yesKey}`)
       }
       
       if (!overlays[noKey]) {
@@ -257,7 +214,6 @@ export function useOverlayManager({ chartInstanceRef, chartId, marketId, platfor
           enabled: true,
           available: true
         })
-        console.log(`🎯 OverlayManager - Auto-enabled default NO price series: ${noKey}`)
       }
     } else {
       // Enable price series for single view (YES or NO)
@@ -270,7 +226,6 @@ export function useOverlayManager({ chartInstanceRef, chartId, marketId, platfor
           enabled: true,
           available: true
         })
-        console.log(`🎯 OverlayManager - Auto-enabled default ${selectedView} price series: ${priceKey}`)
       }
     }
   }, [selectedView, selectedRange, overlays, addOverlay])
@@ -282,7 +237,6 @@ export function useOverlayManager({ chartInstanceRef, chartId, marketId, platfor
     const previousView = previousStateRef.current.view
     
     if (previousView !== selectedView) {
-      console.log(`🔄 OverlayManager - View changed: ${previousView} → ${selectedView}`)
       
       // Step 1: Destroy ALL existing overlay instances
       const currentInstances = Array.from(overlayInstancesRef.current.keys())
@@ -303,8 +257,6 @@ export function useOverlayManager({ chartInstanceRef, chartId, marketId, platfor
       // Update previous state
       previousStateRef.current.view = selectedView
       
-      console.log(`✅ OverlayManager - View change complete. Active instances:`, 
-        Array.from(overlayInstancesRef.current.keys()))
     }
   }, [selectedView, overlays, destroyOverlayInstance, createOverlayInstance, isOverlayCompatible])
 
@@ -316,7 +268,6 @@ export function useOverlayManager({ chartInstanceRef, chartId, marketId, platfor
     const previousRange = previousStateRef.current.range
     
     if (previousRange !== selectedRange) {
-      console.log(`🔄 OverlayManager - Range changed: ${previousRange} → ${selectedRange}`)
       
       // Call setRange() on all existing instances
       overlayInstancesRef.current.forEach((instance, overlayKey) => {
@@ -324,16 +275,14 @@ export function useOverlayManager({ chartInstanceRef, chartId, marketId, platfor
           // Function to get new subscription ID for a given series type and range
           setMarketId(selectedRange)
           instance.setRange(selectedRange, universal_market_id)
-          console.log(`📊 OverlayManager - Updated range for ${overlayKey} to ${selectedRange}`)
         } catch (error) {
-          console.error(`❌ OverlayManager - Error updating range for ${overlayKey}:`, error)
+          // Error updating range
         }
       })
       
       // Update previous state
       previousStateRef.current.range = selectedRange
       
-      console.log(`✅ OverlayManager - Range change complete for ${overlayInstancesRef.current.size} instances`)
     }
   }, [selectedRange])
 
@@ -346,7 +295,6 @@ export function useOverlayManager({ chartInstanceRef, chartId, marketId, platfor
     const addedKeys = Array.from(currentOverlayKeys).filter(key => !previousOverlayKeys.has(key))
     
     if (addedKeys.length > 0) {
-      console.log('🔍 TRACE - Overlay Addition Effect triggered:', { addedKeys, triggerReason: 'New overlays added to Redux state' })
       
       addedKeys.forEach(overlayKey => {
         const overlay = overlays[overlayKey]
@@ -354,13 +302,12 @@ export function useOverlayManager({ chartInstanceRef, chartId, marketId, platfor
           const instance = createOverlayInstance(overlayKey, overlay)
           if (instance) {
             overlayInstancesRef.current.set(overlayKey, instance)
-            console.log(`✅ OverlayManager - Created instance for new overlay: ${overlayKey}`)
             if (overlayKey in BOTTOM_CLASS_MAP) {
               setWindowSize()
             }
           }
         } else {
-          console.log(`⚠️ OverlayManager - Skipping new overlay (disabled or incompatible): ${overlayKey}`, { enabled: overlay.enabled, compatible: isOverlayCompatible(overlay) })
+          // Skipping overlay (disabled or incompatible)
         }
       })
       
@@ -378,7 +325,6 @@ export function useOverlayManager({ chartInstanceRef, chartId, marketId, platfor
     const removedKeys = Array.from(previousOverlayKeys).filter(key => !currentOverlayKeys.has(key))
     
     if (removedKeys.length > 0) {
-      console.log('🔍 TRACE - Overlay Removal Effect triggered:', { removedKeys, triggerReason: 'Overlays removed from Redux state' })
       
       removedKeys.forEach(overlayKey => {
         //check if removed was the universal profile
@@ -386,7 +332,6 @@ export function useOverlayManager({ chartInstanceRef, chartId, marketId, platfor
               resetWindowSize()
         }
         destroyOverlayInstance(overlayKey)
-        console.log(`🗑️ OverlayManager - Destroyed instance for removed overlay: ${overlayKey}`)
       })
       
       // Update previous overlay keys to remove deleted ones
@@ -402,7 +347,6 @@ export function useOverlayManager({ chartInstanceRef, chartId, marketId, platfor
       Object.entries(overlays).map(([key, overlay]) => [key, { enabled: overlay.enabled, available: overlay.available }])
     ))
     
-    console.log('🔍 TRACE - Overlay Enable/Disable Effect triggered:', { triggerReason: 'Overlay enabled/available state changed' })
     
     Object.entries(overlays).forEach(([overlayKey, overlay]) => {
       //check if removed was the universal profile
@@ -411,13 +355,11 @@ export function useOverlayManager({ chartInstanceRef, chartId, marketId, platfor
       const shouldHaveInstance = overlay.enabled && isOverlayCompatible(overlay)
       
       if (hasInstance && !shouldHaveInstance) {
-        console.log(`🔄 OverlayManager - Disabling overlay: ${overlayKey}`, { enabled: overlay.enabled, compatible: isOverlayCompatible(overlay) })
         if (overlayKey in BOTTOM_CLASS_MAP) {
               resetWindowSize()
         }
         destroyOverlayInstance(overlayKey)
       } else if (!hasInstance && shouldHaveInstance) {
-        console.log(`🔄 OverlayManager - Enabling overlay: ${overlayKey}`, { enabled: overlay.enabled, compatible: isOverlayCompatible(overlay) })
         const instance = createOverlayInstance(overlayKey, overlay)
         if (overlayKey in BOTTOM_CLASS_MAP) {
               setWindowSize()
@@ -441,7 +383,7 @@ export function useOverlayManager({ chartInstanceRef, chartId, marketId, platfor
    *
    * */
    function setMarketId(newRange?: TimeRange, newView?: SeriesType ) {
-    if (! universal_market_id) {return console.error("Market id is null while attempting to set it locally")}
+    if (! universal_market_id) {return}
   	let id_components: String[] = universal_market_id.split("&")
   	if (newRange) { id_components[1] = newRange } 
   	if (newView) { id_components[2] = newView.toLowerCase() }
@@ -485,17 +427,8 @@ export function useOverlayManager({ chartInstanceRef, chartId, marketId, platfor
     return overlayInstancesRef.current.get(overlayKey) || null
   }, [])
 
-  console.log('🎣 useOverlayManager - Current state:', {
-    chartInstance: !!chartInstanceRef.current,
-    view: selectedView,
-    range: selectedRange,
-    reduxOverlays: Object.keys(overlays).length,
-    activeInstances: overlayInstancesRef.current.size,
-    instanceKeys: Array.from(overlayInstancesRef.current.keys())
-  })
 
   const setWindowSize = useCallback(() => {
-    console.log('📐 OverlayManager - Setting window size for non-bottom overlays')
     
     // Iterate through every overlay instance that is not in the BOTTOM_CLASS_MAP
     overlayInstancesRef.current.forEach((instance, overlayKey) => {
@@ -511,15 +444,14 @@ export function useOverlayManager({ chartInstanceRef, chartId, marketId, platfor
                 bottom: 0.4, // 40% away from the bottom (leaving space for volume)
               }
             })
-            console.log(`✅ OverlayManager - Applied scale margins to ${overlayKey}`)
           } else {
-            console.warn(`⚠️ OverlayManager - No series API found for ${overlayKey}`)
+            // No series API found
           }
         } catch (error) {
-          console.error(`❌ OverlayManager - Error setting scale margins for ${overlayKey}:`, error)
+          // Error setting scale margins
         }
       } else {
-        console.log(`⏭️ OverlayManager - Skipping bottom overlay ${overlayKey}`)
+        // Skipping bottom overlay
       }
     })
   }, [])
@@ -529,7 +461,6 @@ export function useOverlayManager({ chartInstanceRef, chartId, marketId, platfor
   * If some other overlay is removed, we reset to default margins
   */
   const resetWindowSize = useCallback(() => {
-    console.log('🔄 OverlayManager - Resetting window size for non-bottom overlays')
     
     // Iterate through every overlay instance that is not in the BOTTOM_CLASS_MAP
     overlayInstancesRef.current.forEach((instance, overlayKey) => {
@@ -545,15 +476,14 @@ export function useOverlayManager({ chartInstanceRef, chartId, marketId, platfor
                 bottom: 0.1, // Standard bottom margin (full space available)
               }
             })
-            console.log(`✅ OverlayManager - Reset scale margins for ${overlayKey}`)
           } else {
-            console.warn(`⚠️ OverlayManager - No series API found for ${overlayKey}`)
+            // No series API found
           }
         } catch (error) {
-          console.error(`❌ OverlayManager - Error resetting scale margins for ${overlayKey}:`, error)
+          // Error resetting scale margins
         }
       } else {
-        console.log(`⏭️ OverlayManager - Skipping bottom overlay ${overlayKey}`)
+        // Skipping bottom overlay
       }
     })
   }, [])

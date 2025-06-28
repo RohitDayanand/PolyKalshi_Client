@@ -16,21 +16,13 @@ export function useChartInstanceState(chartId: string) {
   const dispatch = useAppDispatch()
 
   const setInstance = (instance: { instance: IChartApi; handleResize: () => void } | null) => {
-    console.log('🎛️ Hook Call - useChartInstanceState.setInstance for chartId', chartId, ':', {
-      newInstance: instance,
-      timestamp: new Date().toISOString()
-    })
     dispatch(setChartInstance({ chartId, instance }))
   }
 
   const clearInstance = () => {
-    console.log('🗑️ Hook Call - useChartInstanceState.clearInstance for chartId:', chartId, {
-      timestamp: new Date().toISOString()
-    })
     dispatch(clearChartInstance(chartId))
   }
 
-  console.log('🎣 useChartInstanceState hook - chartId:', chartId, 'chartInstance:', chartInstance)
 
   return {
     chartInstance,

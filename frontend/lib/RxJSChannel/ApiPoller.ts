@@ -1,5 +1,5 @@
 import { Subject } from 'rxjs'
-import { DataPoint, ChannelConfig, ChannelMessage } from './types'
+import { DataPoint, ChannelConfig, ChannelMessage, MarketSide } from './types'
 import { ChannelCache } from './ChannelCache'
 
 // Kalshi API response types
@@ -15,21 +15,22 @@ interface KalshiCandlestickResponse {
  */
 export class ApiPoller {
   private pollIntervals = new Map<string, NodeJS.Timeout>()
-  private defaultPollInterval: number
   private maxCacheSize: number
   private channelCache: ChannelCache
   private channelSubject: Subject<ChannelMessage>
+  private apiPollSize: Number 
 
   constructor(
     channelSubject: Subject<ChannelMessage>,
     channelCache: ChannelCache,
-    defaultPollInterval: number = 60000,
-    maxCacheSize: number = 300
+    maxCacheSize: number = 300,
+    apiPollSize: number
+
   ) {
     this.channelSubject = channelSubject
     this.channelCache = channelCache
-    this.defaultPollInterval = defaultPollInterval
     this.maxCacheSize = maxCacheSize
+    this.apiPollSize = apiPollSize
   }
 
   /**
@@ -57,7 +58,7 @@ export class ApiPoller {
         throw new Error(`API returned error: ${kalshiResponse.error || 'Unknown error'}`)
       }
       
-      const historyData: DataPoint[] = this.processKalshiCandlesticks(kalshiResponse)
+      const historyData: DataPoint[] = this.processKalshiCandlesticks(kalshiResponse, channelConfig.side)
 
       if (historyData.length > 0) {
         console.log(`✅ [API_POLL] Received ${historyData.length} historical points for ${channelKey}`)
@@ -140,7 +141,7 @@ export class ApiPoller {
         return // Skip this poll cycle
       }
       
-      const newData: DataPoint[] = this.processKalshiCandlesticks(kalshiResponse)
+      const newData: DataPoint[] = this.processKalshiCandlesticks(kalshiResponse, channelConfig.side)
       
       if (newData.length > 0) {
         console.log(`🔄 [POLL_UPDATE] Received ${newData.length} new points for ${channelKey}`)
@@ -184,6 +185,8 @@ export class ApiPoller {
 
   /**
    * Calculate Unix timestamp range based on TimeRange and request type
+   * 
+   * @TODO move this to to the backend - amount of historical data recieved by clients should be universal
    */
   private calculateTimeRange(range: string, type: 'initial' | 'update', since?: number): { startTs: number, endTs: number } {
     const nowTs = Math.floor(Date.now() / 1000) // Unix seconds
@@ -198,13 +201,13 @@ export class ApiPoller {
       // For initial data, calculate based on range
       switch (range) {
         case '1H':
-          startTs = nowTs - (60 * 60) // 1 hour ago
+          startTs = nowTs - (60 * 60 * 6) // 6 hour ago
           break
         case '1W':
-          startTs = nowTs - (7 * 24 * 60 * 60) // 1 week ago
+          startTs = nowTs - (7 * 24 * 60 * 60 * 2) // 2 week ago
           break
         case '1M':
-          startTs = nowTs - (30 * 24 * 60 * 60) // 30 days ago
+          startTs = nowTs - (30 * 24 * 60 * 60 * 6) // 6 months ago
           break
         case '1Y':
           startTs = nowTs - (365 * 24 * 60 * 60) // 365 days ago
@@ -264,7 +267,7 @@ export class ApiPoller {
   /**
    * Process Kalshi candlestick response into DataPoint format
    */
-  private processKalshiCandlesticks(kalshiResponse: KalshiCandlestickResponse): DataPoint[] {
+  private processKalshiCandlesticks(kalshiResponse: KalshiCandlestickResponse, side: MarketSide): DataPoint[] {
     if (!kalshiResponse.data || !kalshiResponse.data.candlesticks) {
       console.warn('No candlesticks data in Kalshi response')
       return []
@@ -274,7 +277,7 @@ export class ApiPoller {
     
     return candlesticks.map((candle: any) => ({
       time: candle.time, // Convert Unix seconds to milliseconds
-      value: candle.close, // Use close price as the value
+      value: candle[`price_${side}`],
       volume: candle.volume
     }))
   }
@@ -285,7 +288,6 @@ export class ApiPoller {
   getStats() {
     return {
       activePolls: this.pollIntervals.size,
-      defaultPollInterval: this.defaultPollInterval,
       maxCacheSize: this.maxCacheSize
     }
   }
