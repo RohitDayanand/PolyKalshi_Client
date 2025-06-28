@@ -33,7 +33,15 @@ export interface ChannelMessage {
   data: DataPoint | DataPoint[]
 }
 
+/*
+* Has all of the data of the channel calling
+* @params include marketId, side, range, platform, cache
+*/
 export interface ChannelConfig {
+  /*
+  * Has all of the details of the Channel Calling 
+  * @params
+  */
   marketId: string
   side: MarketSide
   range: TimeRange

@@ -28,13 +28,6 @@ export class ChannelCache {
     // Add to LRU cache
     channelConfig.lruCache.set(dataPoint.time, dataPoint)
     
-    // Add to legacy array cache
-    channelConfig.cache.push(dataPoint)
-    
-    // Trim legacy array to max size
-    if (channelConfig.cache.length > this.maxCacheSize) {
-      channelConfig.cache.shift()
-    }
   }
 
   /**
@@ -122,6 +115,7 @@ export class ChannelCache {
   }
 
   /**
+   * @TODO merge into main function utility
    * Generate channel key from components
    */
   static generateChannelKey(marketId: string, side: MarketSide, range: TimeRange): string {
@@ -129,6 +123,7 @@ export class ChannelCache {
   }
 
   /**
+   * @TODO merge into main function utility
    * Parse channel key back to components
    */
   static parseChannelKey(channelKey: string): { marketId: string; side: MarketSide; range: TimeRange } | null {

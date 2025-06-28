@@ -23,12 +23,6 @@ export const chartRangeSlice = createSlice({
   reducers: {
     setSelectedRange: (state, action: PayloadAction<{ chartId: string; range: TimeRange }>) => {
       const { chartId, range } = action.payload
-      console.log('🔄 Redux Action - chartRange/setSelectedRange:', {
-        chartId,
-        from: state.chartInstances[chartId]?.selectedRange,
-        to: range,
-        timestamp: new Date().toISOString()
-      })
       
       // Initialize chart instance if it doesn't exist
       if (!state.chartInstances[chartId]) {
@@ -40,13 +34,11 @@ export const chartRangeSlice = createSlice({
     initializeChartInstance: (state, action: PayloadAction<string>) => {
       const chartId = action.payload
       if (!state.chartInstances[chartId]) {
-        console.log('🔄 Redux Action - chartRange/initializeChartInstance:', chartId)
         state.chartInstances[chartId] = getDefaultInstanceState()
       }
     },
     removeChartInstance: (state, action: PayloadAction<string>) => {
       const chartId = action.payload
-      console.log('🔄 Redux Action - chartRange/removeChartInstance:', chartId)
       delete state.chartInstances[chartId]
     }
   }

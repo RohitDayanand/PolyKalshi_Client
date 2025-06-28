@@ -6,6 +6,7 @@ import { MarketList } from "@/components/market-list"
 import { VisualizationPanel } from "@/components/visualization-panel"
 import { SubscribedMarkets } from "@/components/subscribed-markets"
 import { CacheDebugPanel } from "@/components/cache-debug-panel"
+import { QuickKalshiSubscribe } from "@/components/quick-kalshi-subscribe"
 
 export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState("polymarket")
@@ -42,6 +43,9 @@ export default function DashboardPage() {
           </div>
           <div>
             <CacheDebugPanel />
+          </div>
+          <div className="space-y-6">
+            <QuickKalshiSubscribe />
           </div>
         </div>
       </main>

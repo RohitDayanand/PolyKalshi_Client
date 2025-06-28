@@ -206,7 +206,7 @@ export function useChartEventDebugger(enabled: boolean = false): void {
   useChartEventPattern('**', 
     useCallback((eventName: string, payload: any) => {
       if (enabled) {
-        console.log(`📡 Chart Event: ${eventName}`, payload);
+        // Chart event debugger
       }
     }, [enabled]),
     [enabled]

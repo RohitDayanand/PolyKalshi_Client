@@ -62,10 +62,8 @@ export default abstract class SeriesClass {
     // Redux integration: Use provided subscription ID
     if (options.subscriptionId) {
       this.subscriptionId = options.subscriptionId
-      console.log('📏 BaseClass - Using provided subscription ID:', this.subscriptionId)
     } else {
       // Subscription ID must be provided - cannot call hooks in constructor
-      console.error('❌ BaseClass - No subscription ID provided. Hooks cannot be called in constructor.')
       this.subscriptionId = `fallback_${this.seriesType}_${Date.now()}`
     }
     
@@ -95,7 +93,6 @@ export default abstract class SeriesClass {
   remove(): void {
     // Prevent double removal
     if (this.isRemoved) {
-      console.log(`⏭️ BaseClass ${this.seriesType} - Already removed, skipping`)
       return
     }
     
@@ -114,9 +111,8 @@ export default abstract class SeriesClass {
     if (this.seriesApi && this.chartInstance) {
       try {
         this.chartInstance.removeSeries(this.seriesApi)
-        console.log(`✅ BaseClass ${this.seriesType} - Successfully removed series from chart`)
       } catch (error) {
-        console.warn(`⚠️ BaseClass ${this.seriesType} - Series already removed or invalid:`, error)
+        // Series already removed or invalid
       } finally {
         this.seriesApi = null
       }
@@ -140,12 +136,9 @@ export default abstract class SeriesClass {
         await this.subscribeToRxJSChannel(marketId, side, timeRange)
       }
       
-      console.log(`✅ SeriesClass - Subscribed ${this.seriesType} to: ${marketId}&${side}&${timeRange}`)
-      
       // Call subclass-specific subscription hook
       await this.onSubscribed(marketId)
     } catch (error) {
-      console.error(`❌ SeriesClass - Failed to subscribe ${this.seriesType} to: ${marketId}`, error)
       this.onError(`Subscription failed: ${error}`)
     }
   }
@@ -155,78 +148,45 @@ export default abstract class SeriesClass {
    */
   private async subscribeToRxJSChannel(marketId: string, side: MarketSide, timeRange: TimeRange): Promise<void> {
     if (this.isSubscribed) {
-      console.warn(`⚠️ ${this.seriesType} already subscribed to RxJS channel`)
       return
     }
 
     try {
       // TRACE: Log the subscription attempt with all details
       const attemptedChannel = `${marketId}&${side}&${timeRange}`
-      console.log(`🔍 [EMITTER_CONNECTION_TRACE] BaseClass attempting RxJS subscription:`, {
-        seriesType: this.seriesType,
-        subscriptionId: this.subscriptionId,
-        attemptedMarketId: marketId,
-        attemptedSide: side,
-        attemptedTimeRange: timeRange,
-        attemptedChannelAddress: attemptedChannel,
-        rxjsChannelManagerExists: !!rxjsChannelManager
-      })
       
       // Subscribe to the RxJS channel manager
       const channelObservable = rxjsChannelManager.subscribe(marketId, side, timeRange)
       
       this.rxjsSubscription = channelObservable.subscribe({
         next: (channelMessage: ChannelMessage) => {
-          console.log(`🔍 [DEBUG] BaseClass ${this.seriesType} - RxJS next() called with message from channel: ${channelMessage.channel}`)
-          
           if (!this.seriesApi) {
-            console.log(`⏭️ BaseClass ${this.seriesType} - Skipping event (no series API available)`)
             return
           }
 
           try {
-            console.log(`🔍 [DEBUG] BaseClass ${this.seriesType} - Raw channel message:`, {
-              channel: channelMessage.channel,
-              updateType: channelMessage.updateType,
-              dataType: Array.isArray(channelMessage.data) ? 'array' : 'object',
-              dataLength: Array.isArray(channelMessage.data) ? channelMessage.data.length : 1,
-              data: channelMessage.data
-            })
 
             if (channelMessage.updateType === 'initial_data') {
               // Handle initial data array with setData() for full dataset
               const initialData = channelMessage.data as DataPoint[]
-              console.log(`📊 BaseClass ${this.seriesType} - Received ${initialData.length} initial data points for ${channelMessage.channel}`)
-              console.log(`🔍 [DEBUG] BaseClass ${this.seriesType} - First 3 initial data points:`, initialData.slice(0, 3))
               
               // Convert DataPoint to chart format and use common updateData method
               const chartData = initialData.map(point => ({
                 time: point.time as any,
                 value: point.value
               }))
-              console.log(`🔍 [DEBUG] BaseClass ${this.seriesType} - Converted chart data (first 3):`, chartData.slice(0, 3))
               
               this.updateData(chartData)
-              console.log(`✅ BaseClass ${this.seriesType} - Loaded initial dataset successfully`)
               
             } else if (channelMessage.updateType === 'update') {
               // Handle single update with update() for performance  
               const updatePoint = channelMessage.data as DataPoint
-              console.log(`📈 BaseClass ${this.seriesType} - Received real-time update:`, updatePoint)
-              console.log(`🔍 [DEBUG] BaseClass ${this.seriesType} - Update point details:`, {
-                time: updatePoint.time,
-                value: updatePoint.value,
-                volume: updatePoint.volume,
-                timeType: typeof updatePoint.time,
-                valueType: typeof updatePoint.value
-              })
               
               // Use common appendData method
               const chartPoint = {
                 time: updatePoint.time as any,
                 value: updatePoint.value
               }
-              console.log(`🔍 [DEBUG] BaseClass ${this.seriesType} - Chart point to append:`, chartPoint)
               this.appendData(chartPoint)
             }
           } catch (error) {
@@ -252,7 +212,6 @@ export default abstract class SeriesClass {
         attemptedChannelAddress: `${marketId}&${side}&${timeRange}`,
         error: error
       })
-      console.error(`❌ BaseClass ${this.seriesType} - Failed to subscribe to RxJS channel:`, error)
       this.onError(`RxJS channel subscription failed: ${error}`)
     }
   }
@@ -260,18 +219,14 @@ export default abstract class SeriesClass {
   unsubscribe(): void {
     try {
       if (this.subscriptionId && this.isSubscribed) {
-        console.log(`🛑 BaseClass ${this.seriesType} - Unsubscribing from: ${this.subscriptionId}`)
         
         // Clean up RxJS subscription
         if (this.rxjsSubscription) {
           this.rxjsSubscription.unsubscribe()
           this.rxjsSubscription = null
-          console.log(`✅ BaseClass ${this.seriesType} - RxJS subscription cleaned up`)
         }
         
         this.isSubscribed = false
-        
-        console.log(`✅ BaseClass ${this.seriesType} - Unsubscribed from: ${this.subscriptionId}`)
         
         // Call subclass-specific unsubscription hook
         this.onUnsubscribed(this.subscriptionId)
@@ -279,52 +234,30 @@ export default abstract class SeriesClass {
         this.subscriptionId = null
       }
     } catch (error) {
-      console.error(`❌ BaseClass ${this.seriesType} - Failed to unsubscribe:`, error)
       this.onError(`Unsubscription failed: ${error}`)
     }
   }
 
   // Common data update methods that work for all series types
   protected updateData(data: any[]): void {
-    console.log(`🔍 [DEBUG] BaseClass ${this.seriesType} - updateData called with:`, {
-      dataLength: data.length,
-      hasSeriesApi: !!this.seriesApi,
-      firstPoint: data[0],
-      lastPoint: data[data.length - 1]
-    })
     
     if (this.seriesApi && data.length > 0) {
       try {
         this.seriesApi.setData(data)
-        console.log(`✅ BaseClass - Updated ${this.seriesType} with ${data.length} data points`)
       } catch (error) {
-        console.error(`❌ BaseClass - Failed to update ${this.seriesType} data:`, error)
         this.onError(`Data update failed: ${error}`)
       }
-    } else {
-      console.warn(`⚠️ BaseClass ${this.seriesType} - updateData skipped:`, {
-        hasSeriesApi: !!this.seriesApi,
-        dataLength: data.length
-      })
     }
   }
 
   protected appendData(dataPoint: any): void {
-    console.log(`🔍 [DEBUG] BaseClass ${this.seriesType} - appendData called with:`, {
-      dataPoint,
-      hasSeriesApi: !!this.seriesApi
-    })
     
     if (this.seriesApi) {
       try {
         this.seriesApi.update(dataPoint)
-        console.log(`✅ BaseClass - Appended data to ${this.seriesType}:`, dataPoint)
       } catch (error) {
-        console.error(`❌ BaseClass - Failed to append data to ${this.seriesType}:`, error)
         this.onError(`Data append failed: ${error}`)
       }
-    } else {
-      console.warn(`⚠️ BaseClass ${this.seriesType} - appendData skipped: no seriesApi`)
     }
     //this.chartInstance.timeScale().fitContent()
   }
@@ -344,28 +277,23 @@ export default abstract class SeriesClass {
    */
   async setRange(newRange: TimeRange, newSubscriptionId: String | null) {
     try {
-      console.log(`🔄 BaseClass ${this.seriesType} - Switching range to: ${newRange}`)
       
       
       if (!newSubscriptionId) {
-        console.error(`❌ BaseClass ${this.seriesType} - No subscription ID found for range: ${newRange}`)
         return
       }
       
       // If we're already subscribed to this range, do nothing
       if (this.subscriptionId === newSubscriptionId) {
-        console.log(`✅ BaseClass ${this.seriesType} - Already subscribed to range: ${newRange}`)
         return
       }
       
       // Unsubscribe from current range
       if (this.subscriptionId && this.isSubscribed) {
-        console.log(`🛑 BaseClass ${this.seriesType} - Unsubscribing from current range: ${this.subscriptionId}`)
         this.unsubscribe()
       }
       
       // Subscribe to new range
-      console.log(`🚀 BaseClass ${this.seriesType} - Subscribing to new range: ${newSubscriptionId}`)
       
       // Parse the new subscription ID to get marketId, side, timeRange
       // Expected format: seriesType&timeRange&marketId (using & as delimiter to avoid conflicts)
@@ -374,16 +302,8 @@ export default abstract class SeriesClass {
         const [seriesTypeStr, timeRange, ...marketIdParts] = subscriptionParts
         const marketId = marketIdParts.join('&') // Rejoin in case marketId contains &
         const side = seriesTypeStr.toLowerCase() as 'yes' | 'no'
-        console.log(`🔍 [DEBUG] BaseClass ${this.seriesType} - Parsed subscription:`, {
-          seriesTypeStr,
-          timeRange,
-          marketId,
-          side
-        })
         await this.subscribe(marketId, side, timeRange as any)
       } else {
-        console.error(`❌ BaseClass ${this.seriesType} - Invalid subscription ID format for range switch: ${newSubscriptionId}`)
-        console.error(`❌ Expected format: seriesType&timeRange&marketId, got: ${newSubscriptionId}`)
         return
       }
     
@@ -391,11 +311,8 @@ export default abstract class SeriesClass {
       const end_time: UTCTimestamp = toUtcTimestamp(this.chartInstance.timeScale().getVisibleRange()?.to) ?? (Date.now() / 1000 ) as UTCTimestamp;
       
       this.chartInstance.timeScale().setVisibleRange({from: getVisibleRangeStart(end_time, newRange), to: end_time })
-
-      console.log(`✅ BaseClass ${this.seriesType} - Successfully switched to range: ${newRange}`)
       
     } catch (error) {
-      console.error(`❌ BaseClass ${this.seriesType} - Failed to switch range:`, error)
       this.onError(`Range switch failed: ${error}`)
     }
   }
@@ -403,9 +320,8 @@ export default abstract class SeriesClass {
   // Abstract method for creating the actual chart series - to be implemented by subclasses
   abstract createSeries(): ISeriesApi<any>
 
-  // Error handling with console logging as per requirement #5
+  // Error handling
   protected onError(error: string): void {
-    console.error(`❌ SeriesClass Error [${this.seriesType}]:`, error)
     // Subclasses can override this for custom error handling
   }
 

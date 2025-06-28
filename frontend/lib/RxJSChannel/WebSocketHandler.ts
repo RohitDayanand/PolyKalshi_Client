@@ -86,6 +86,7 @@ export class WebSocketHandler {
     const sideData = tickerData.summary_stats[side]
     if (!sideData) return
 
+    // @TODO add a utility midpoint function calculation
     // Calculate midpoint price
     const midpoint = sideData.bid !== null && sideData.ask !== null 
       ? (sideData.bid + sideData.ask) / 2 
