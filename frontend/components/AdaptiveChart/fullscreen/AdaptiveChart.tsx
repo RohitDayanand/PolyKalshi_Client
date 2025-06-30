@@ -59,9 +59,14 @@ export function AdaptiveChart({
   // Debug: Log when platform and marketId change
   useEffect(() => {
     if (platform && marketId) {
-      // Market data received
+      console.log(`📈 AdaptiveChart [${chartId}]: Received market data - Platform: ${platform}, Market ID: ${marketId}, Title: ${marketTitle || 'N/A'}`)
     }
   }, [platform, marketId, marketTitle, chartId])
+
+  if (! marketId) {
+    throw new Error("Marketid must be defined for chart creation logic to commence")
+
+  }
 
   // Redux state - now using chartId for isolated state
   const { selectedView, setView } = useChartViewState(chartId)
@@ -103,7 +108,7 @@ export function AdaptiveChart({
   } = useOverlayManager({ 
     chartInstanceRef,
     chartId, 
-    marketId,
+    marketId, 
     platform
   })
 
@@ -118,10 +123,12 @@ export function AdaptiveChart({
       
       if (capturedWidth > 0) {
         originalWidthRef.current = capturedWidth
+        console.log('📏 AdaptiveChart - Captured original width:', capturedWidth)
       }
       
       if (capturedHeight > 0) {
         originalHeightRef.current = capturedHeight
+        console.log('📏 AdaptiveChart - Using fixed original height:', capturedHeight)
       }
     }
   }, [isFullscreen, chartContainerRef.current, containerHeight])
@@ -155,6 +162,15 @@ export function AdaptiveChart({
           targetHeight = embeddedChartHeight // Use fixed height instead of containerHeight
         }
 
+        console.log('📏 AdaptiveChart - Resizing chart:', { 
+          targetWidth, 
+          targetHeight, 
+          isFullscreen,
+          containerHeight,
+          originalWidth: originalWidthRef.current,
+          originalHeight: originalHeightRef.current,
+          measuredWidth: chartContainerRef.current?.getBoundingClientRect().width
+        })
 
         // Apply new dimensions to the chart
         chartInstanceRef.current.applyOptions({
@@ -184,6 +200,7 @@ export function AdaptiveChart({
     const resizeTimeout = setTimeout(() => {
       // Force a more aggressive resize when exiting fullscreen
       if (!isFullscreen && chartInstanceRef.current && chartContainerRef.current) {
+        console.log('📏 AdaptiveChart - Forcing resize on fullscreen exit')
         
         // Wait for DOM to update, then use stored original dimensions
         requestAnimationFrame(() => {
@@ -192,6 +209,14 @@ export function AdaptiveChart({
             const targetWidth = originalWidthRef.current || chartContainerRef.current.clientWidth
             const targetHeight = originalHeightRef.current || containerHeight
             
+            console.log('📏 AdaptiveChart - Exit fullscreen resize:', { 
+              targetWidth, 
+              targetHeight, 
+              containerHeight,
+              originalWidth: originalWidthRef.current,
+              originalHeight: originalHeightRef.current,
+              measuredWidth: chartContainerRef.current.getBoundingClientRect().width
+            })
 
             chartInstanceRef.current.applyOptions({
               width: targetWidth,
@@ -234,11 +259,13 @@ export function AdaptiveChart({
           if (currentWidth > 0 && currentWidth !== originalWidthRef.current) {
             originalWidthRef.current = currentWidth
             dimensionsChanged = true
+            console.log('📏 AdaptiveChart - Updated original width on window resize:', currentWidth)
           }
           
           if (currentHeight > 0 && currentHeight !== originalHeightRef.current) {
             originalHeightRef.current = currentHeight
             dimensionsChanged = true
+            console.log('📏 AdaptiveChart - Updated to fixed height on window resize:', currentHeight)
           }
           
           // Resize chart only if dimensions actually changed

@@ -148,7 +148,6 @@ export class WebSocketHandler {
       channel: channelKey,
       updateType: message.updateType,
       dataPoint: { time: dataPoint.time, value: dataPoint.value },
-      cacheSize: channelConfig.cache.length,
       lruCacheSize: channelConfig.lruCache.size,
       timeSinceLastEmit: now - (channelConfig.lastEmitTime - channelConfig.throttleMs)
     })
