@@ -127,7 +127,7 @@ def process_kalshi_candlesticks(raw_data: Dict, market_info: Dict[str, str]) -> 
                 logger.info(f"      🔑 Candle keys: {list(candle.keys())}")
 
             # Check if we have valid bid/ask data
-            if yes_bid is None and yes_ask is None:
+            if yes_bid is None or yes_ask is None:
                 invalid_candles += 1
                 logger.warning(f"   ⚠️ Candle {i+1} has no bid/ask data, skipping")
                 continue
@@ -140,9 +140,12 @@ def process_kalshi_candlesticks(raw_data: Dict, market_info: Dict[str, str]) -> 
                 "close": quote_midprice(yes_bid, yes_ask, OHLC.CLOSE),
                 "volume": candle.get("volume", 0),
                 "yes_price": quote_midprice(yes_bid, yes_ask, OHLC.CLOSE),
-                "no_price": quote_midprice(100 - yes_ask, 100 - yes_bid, OHLC.CLOSE),
+                "no_price": quote_midprice(yes_ask, yes_bid, OHLC.CLOSE, isNo=True),
                 "open_interest": candle.get("open_interest", 0)
             }
+
+            print((f"Candle {i} is complete"))
+            
             processed_data["candlesticks"].append(processed_candle)
             valid_candles += 1
         
@@ -150,15 +153,6 @@ def process_kalshi_candlesticks(raw_data: Dict, market_info: Dict[str, str]) -> 
         logger.info(f"   ✅ Valid candles processed: {valid_candles}")
         logger.info(f"   ❌ Invalid candles skipped: {invalid_candles}")
         logger.info(f"   📊 Final count sent to frontend: {len(processed_data['candlesticks'])}")
-        
-        if processed_data["candlesticks"]:
-            first_processed = processed_data["candlesticks"][0]
-            last_processed = processed_data["candlesticks"][-1]
-            first_time = datetime.fromtimestamp(first_processed["time"]) if first_processed["time"] else "N/A"
-            last_time = datetime.fromtimestamp(last_processed["time"]) if last_processed["time"] else "N/A"
-            
-            logger.info(f"   🕐 First processed candle: time={first_processed['time']} ({first_time}), price={first_processed['price']}")
-            logger.info(f"   🕐 Last processed candle: time={last_processed['time']} ({last_time}), price={last_processed['price']}")
         
         return processed_data
         

@@ -82,6 +82,7 @@ export function useOverlayManager({ chartInstanceRef, chartId, marketId, platfor
   const { overlays, addOverlay } = useOverlayState(chartId)
   const { selectedView } = useChartViewState(chartId)
   const { selectedRange } = useChartRangeState(chartId)
+  const { getSubscriptionId } = useMarketSubscriptionState(chartId) // Get subscription IDs
   
   // Map to store actual SeriesClass instances
   // Memoize this in later iterations, make lookups more efficient
@@ -137,13 +138,18 @@ export function useOverlayManager({ chartInstanceRef, chartId, marketId, platfor
 
     //build the overlay with the actual parent 
     try {
+      // FIXED: Use real marketId with platform prefix if available, otherwise fall back to Redux/baseline
+      const reduxSubscriptionId = getSubscriptionId(overlay.type, overlay.range)
       
       // Generate subscription ID with platform prefix to match WebSocket emission format
       // @TODO: merge this into a singleton repo
       let realMarketSubscriptionId = null
       if (marketId && platform) {
         const platformPrefixedMarketId = `${platform.toLowerCase()}_${marketId}`
-        realMarketSubscriptionId = generateSubscriptionId(overlay.type, overlay.range, platformPrefixedMarketId)
+
+        //The range of the overlay should be controlled by the global state - but the view is not neccessarily controlled
+        // by the global state because of the both view - each series maintains it's yes/no view 
+        realMarketSubscriptionId = generateSubscriptionId(overlay.type, selectedRange, platformPrefixedMarketId)
       } 
       
       // Priority: real marketId (with platform). No fallbacks
@@ -164,7 +170,7 @@ export function useOverlayManager({ chartInstanceRef, chartId, marketId, platfor
     } catch (error) {
       return null
     }
-  }, [getOverlayClass])
+  }, [getOverlayClass, getSubscriptionId])
 
   /**
    * HELPER: Destroy overlay instance and cleanup

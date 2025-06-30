@@ -185,7 +185,7 @@ def generate_market_id(platform: str, identifier: str) -> str:
 def parse_market_string_id(market_string_id: str) -> Dict[str, str]:
     """Parse marketStringId format: ticker&side&range"""
     try:
-        market_elements = market_string_id.split("&")
+        market_elements = market_string_id.split("&") #encoding for url same ampersand
         if len(market_elements) < 3:
             raise ValueError("Invalid market_string_id format. Expected: ticker&side&range")
         

@@ -54,36 +54,20 @@ class ChannelManager:
     
     def add_connection(self, websocket: WebSocket):
         """Add new WebSocket connection"""
-        client_info = f"{websocket.client.host}:{websocket.client.port}" if websocket.client else "unknown"
-        logger.info(f"🔗 ADDING WebSocket connection from {client_info}")
-        logger.info(f"🔗 WebSocket object ID: {id(websocket)}")
-        
         self.connections.add(websocket)
         self.subscriptions[websocket] = []
         self._invalidate_cache()
         self.stats["total_connections"] = len(self.connections)
-        
-        logger.info(f"✅ Connection added. Total connections: {len(self.connections)}")
-        for i, conn in enumerate(self.connections):
-            conn_info = f"{conn.client.host}:{conn.client.port}" if conn.client else "unknown"
-            logger.info(f"   Connection {i+1}: {conn_info} (ID: {id(conn)})")
+        logger.info(f"Connection added. Total: {len(self.connections)}")
     
     def remove_connection(self, websocket: WebSocket):
         """Remove WebSocket connection and clean up subscriptions"""
-        client_info = f"{websocket.client.host}:{websocket.client.port}" if websocket.client else "unknown"
-        logger.info(f"🔗 REMOVING WebSocket connection from {client_info}")
-        logger.info(f"🔗 WebSocket object ID: {id(websocket)}")
-        
         self.connections.discard(websocket)
         if websocket in self.subscriptions:
             del self.subscriptions[websocket]
         self._invalidate_cache()
         self.stats["total_connections"] = len(self.connections)
-        
-        logger.info(f"❌ Connection removed. Total connections: {len(self.connections)}")
-        for i, conn in enumerate(self.connections):
-            conn_info = f"{conn.client.host}:{conn.client.port}" if conn.client else "unknown"
-            logger.info(f"   Remaining connection {i+1}: {conn_info} (ID: {id(conn)})")
+        logger.info(f"Connection removed. Total: {len(self.connections)}")
     
     '''
     Why are we creating all of these subscription filters
@@ -143,12 +127,7 @@ class ChannelManager:
             for sub_filter in filters:
                 if sub_filter.subscription_type == SubscriptionType.ALL:
                     all_subscribers.add(websocket)
-                
-                elif sub_filter.subscription_type == SubscriptionType.PLATFORM:
-                    if sub_filter.platform:
-                        if sub_filter.platform not in self._platform_cache:
-                            self._platform_cache[sub_filter.platform] = set()
-                        self._platform_cache[sub_filter.platform].add(websocket)
+
                 
                 elif sub_filter.subscription_type == SubscriptionType.MARKET:
                     if sub_filter.market_id:
@@ -252,12 +231,6 @@ class ChannelManager:
         """Send data to set of WebSocket subscribers with error handling"""
         message = json.dumps(data)
         logger.info(f"📤 CHANNEL MANAGER: Sending to {len(subscribers)} subscribers: {message[:200]}...")
-        
-        # Log details about each subscriber
-        for i, websocket in enumerate(subscribers):
-            client_info = f"{websocket.client.host}:{websocket.client.port}" if websocket.client else "unknown"
-            logger.info(f"   Subscriber {i+1}: {client_info} (ID: {id(websocket)})")
-        
         disconnected = set()
         
         send_tasks = []
@@ -295,7 +268,6 @@ class ChannelManager:
         """Get channel manager statistics"""
         return {
             **self.stats,
-            "platform_subscriptions": {platform: len(subs) for platform, subs in self._platform_cache.items()},
             "market_subscriptions": {market: len(subs) for market, subs in self._market_cache.items()},
             "all_subscribers": len(self._all_subscribers_cache) if self._all_subscribers_cache else 0
         }
