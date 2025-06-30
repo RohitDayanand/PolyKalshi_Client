@@ -50,6 +50,7 @@ from .polymarket_client.polymarket_queue import PolymarketQueue
 from .polymarket_client.polymarket_message_processor import PolymarketMessageProcessor
 from .polymarket_client.polymarket_ticker_publisher import PolymarketTickerPublisher
 from .kalshi_ticker_publisher import KalshiTickerPublisher
+from .utils.tglobal_config import PUBLISH_INTERVAL_SECONDS
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -82,13 +83,13 @@ class MarketsManager:
         # Initialize Kalshi ticker publisher (1-second intervals)
         self.kalshi_ticker_publisher = KalshiTickerPublisher(
             kalshi_processor=self.kalshi_processor,
-            publish_interval=1.0
+            publish_interval=PUBLISH_INTERVAL_SECONDS
         )
         
         # Initialize Polymarket ticker publisher (1-second intervals)
         self.polymarket_ticker_publisher = PolymarketTickerPublisher(
             polymarket_processor=self.polymarket_processor,
-            publish_interval=1.0
+            publish_interval=PUBLISH_INTERVAL_SECONDS
         )
         
         # Set up processor callbacks
