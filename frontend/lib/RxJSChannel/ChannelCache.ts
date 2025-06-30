@@ -22,12 +22,11 @@ export class ChannelCache {
   }
 
   /**
-   * Add a data point to channel cache (both LRU and legacy array)
+   * Add a data point to channel cache (LRU only)
    */
   addDataPoint(channelConfig: ChannelConfig, dataPoint: DataPoint): void {
     // Add to LRU cache
     channelConfig.lruCache.set(dataPoint.time, dataPoint)
-    
   }
 
   /**
@@ -47,13 +46,11 @@ export class ChannelCache {
   setInitialData(channelConfig: ChannelConfig, dataPoints: DataPoint[]): void {
     // Clear existing cache
     channelConfig.lruCache.clear()
-    channelConfig.cache = []
     
     // Add all data points
     dataPoints.forEach(point => {
       channelConfig.lruCache.set(point.time, point)
     })
-    channelConfig.cache = [...dataPoints]
   }
 
   /**
@@ -98,7 +95,6 @@ export class ChannelCache {
   getCacheStats(channelConfig: ChannelConfig) {
     return {
       lruCacheSize: channelConfig.lruCache.size,
-      arrayCacheSize: channelConfig.cache.length,
       oldestTimestamp: channelConfig.lruCache.size > 0 
         ? Math.min(...Array.from(channelConfig.lruCache.keys())) 
         : 0,
@@ -111,7 +107,6 @@ export class ChannelCache {
    */
   clearCache(channelConfig: ChannelConfig): void {
     channelConfig.lruCache.clear()
-    channelConfig.cache = []
   }
 
   /**

@@ -1,6 +1,7 @@
 import { LineSeries as LightweightLineSeries, ISeriesApi, LineData, Time } from 'lightweight-charts'
 import SeriesClass from './BaseClass'
 import { SeriesClassConstructorOptions, MarketDataUpdate, MarketDataPoint } from '../../../lib/ChartStuff/chart-types'
+import { parseSubscriptionId } from '../utils/parseSubscriptionId'
 
 /**
  * MOVING AVERAGE OVERLAY COMPONENT
@@ -60,25 +61,15 @@ export class MovingAverage extends SeriesClass {
       if (this.subscriptionId) {
         console.log(`🔗 MovingAverage - Attempting subscription with ID: ${this.subscriptionId}`)
         
-        // Parse subscription ID format: "seriesType&timeRange&marketId"
-        const subscriptionParts = this.subscriptionId.split('&')
-        if (subscriptionParts.length >= 3) {
-          const [seriesTypeStr, timeRange, ...marketIdParts] = subscriptionParts
-          const marketId = marketIdParts.join('&') // Rejoin market ID parts that may contain '&'
-          const side = seriesTypeStr.toLowerCase() as 'yes' | 'no'
-          
-          console.log(`📊 MovingAverage - Parsed subscription details:`, {
-            subscriptionId: this.subscriptionId,
-            marketId,
-            side,
-            timeRange,
-            seriesType: this.seriesType
-          })
-          
+        const parsed = parseSubscriptionId(this.subscriptionId)
+
+        if (parsed) {
+          const {marketId, side, timeRange} = parsed
           this.subscribe(marketId, side, timeRange as any)
         } else {
           console.error(`❌ MovingAverage - Invalid subscription ID format: ${this.subscriptionId}`)
         }
+
       } else {
         console.warn(`⚠️ MovingAverage - No subscription ID provided for ${this.seriesType} series`)
       }

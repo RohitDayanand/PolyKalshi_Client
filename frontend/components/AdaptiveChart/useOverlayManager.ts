@@ -11,7 +11,7 @@ import { LineSeries } from './Overlays/LineSeries'
 import { Volume } from './Overlays/Volume'
 import { SeriesType, TimeRange, Overlay } from '../../lib/ChartStuff/chart-types'
 import { OVERLAY_REGISTRY } from '../../lib/ChartStuff/overlay-registry'
-import { generateSubscriptionId } from '../../lib/subscription-baseline'
+import { generateSubscriptionId } from '../../lib/ChartStuff/subscription_baseline'
 import { useMarketSubscriptionState } from './hooks/useMarketSubscriptionState'
 
 /**
@@ -66,7 +66,7 @@ const OVERLAY_CLASS_MAP: Record<string, ConcreteSeriesClass> = {
 interface UseOverlayManagerProps {
   chartInstanceRef: MutableRefObject<IChartApi | null>
   chartId: string
-  marketId?: string  // Add marketId prop
+  marketId: string  // Add marketId prop
   platform?: string  // Add platform for context
 }
 const BOTTOM_CLASS_MAP: string[] = [
@@ -82,7 +82,6 @@ export function useOverlayManager({ chartInstanceRef, chartId, marketId, platfor
   const { overlays, addOverlay } = useOverlayState(chartId)
   const { selectedView } = useChartViewState(chartId)
   const { selectedRange } = useChartRangeState(chartId)
-  const { getSubscriptionId } = useMarketSubscriptionState(chartId) // Get subscription IDs
   
   // Map to store actual SeriesClass instances
   // Memoize this in later iterations, make lookups more efficient
@@ -91,7 +90,16 @@ export function useOverlayManager({ chartInstanceRef, chartId, marketId, platfor
   /* @variable universal market id
   *	 follows format marketId&side&range - where market id is in th
   */
-  let universal_market_id: String | null = ""
+
+  if (!platform) {
+    console.warn('No platform provided. Defaulting to "default".');
+    platform = 'kalshi';
+  }
+
+  /*
+  * IMPORTANT - represents our marketId prefix in our channel subscription key
+  */
+  let universal_market_id: string | null = `${platform}_${marketId}`
 
   // Track previous state to detect changes
   const previousStateRef = useRef({
@@ -129,8 +137,6 @@ export function useOverlayManager({ chartInstanceRef, chartId, marketId, platfor
 
     //build the overlay with the actual parent 
     try {
-      // FIXED: Use real marketId with platform prefix if available, otherwise fall back to Redux/baseline
-      const reduxSubscriptionId = getSubscriptionId(overlay.type, overlay.range)
       
       // Generate subscription ID with platform prefix to match WebSocket emission format
       // @TODO: merge this into a singleton repo
@@ -158,7 +164,7 @@ export function useOverlayManager({ chartInstanceRef, chartId, marketId, platfor
     } catch (error) {
       return null
     }
-  }, [getOverlayClass, getSubscriptionId])
+  }, [getOverlayClass])
 
   /**
    * HELPER: Destroy overlay instance and cleanup
@@ -273,8 +279,7 @@ export function useOverlayManager({ chartInstanceRef, chartId, marketId, platfor
       overlayInstancesRef.current.forEach((instance, overlayKey) => {
         try {
           // Function to get new subscription ID for a given series type and range
-          setMarketId(selectedRange)
-          instance.setRange(selectedRange, universal_market_id)
+          instance.setRange(selectedRange, marketId)
         } catch (error) {
           // Error updating range
         }
@@ -378,18 +383,6 @@ export function useOverlayManager({ chartInstanceRef, chartId, marketId, platfor
     isOverlayCompatible
   ])
 
-  /*
-   * Settor and Gettor for universal market id based on side, range
-   *
-   * */
-   function setMarketId(newRange?: TimeRange, newView?: SeriesType ) {
-    if (! universal_market_id) {return}
-  	let id_components: String[] = universal_market_id.split("&")
-  	if (newRange) { id_components[1] = newRange } 
-  	if (newView) { id_components[2] = newView.toLowerCase() }
-  	universal_market_id = id_components.join("&")
-   }
-
 
   /**
    * EFFECT: Ensure default price series overlays are enabled
@@ -457,6 +450,23 @@ export function useOverlayManager({ chartInstanceRef, chartId, marketId, platfor
   }, [])
 
   /*
+   * Settor and Gettor for universal market id based on side, range
+   *
+   * @TODO - merge this into the utilites
+   * */
+  function createNewSubscription(newRange: TimeRange, newView: SeriesType): string | null {
+    if (!universal_market_id) {
+      console.error("No subscription detected and react state change detected. Aborting range change to avoid runtime error.")
+      return null
+    }
+
+    let new_subscription = [universal_market_id, newView, newRange].join('&')
+    console.log("New universal market id", new_subscription)
+
+    return new_subscription
+  }
+
+  /*
   * Resets window size to original for all non bottom_class_map series 
   * If some other overlay is removed, we reset to default margins
   */
@@ -487,6 +497,7 @@ export function useOverlayManager({ chartInstanceRef, chartId, marketId, platfor
       }
     })
   }, [])
+
 
 
   return {

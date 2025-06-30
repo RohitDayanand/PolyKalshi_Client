@@ -1,5 +1,6 @@
 import { TimeRange as ChartTimeRange } from '../ChartStuff/chart-types'
 import { LRUCache } from 'lru-cache'
+import { Observable } from 'rxjs'
 
 export type TimeRange = ChartTimeRange
 export type MarketSide = 'yes' | 'no'
@@ -46,13 +47,15 @@ export interface ChannelConfig {
   side: MarketSide
   range: TimeRange
   platform: Platform
-  cache: DataPoint[] // Legacy array cache
   lruCache: LRUCache<number, DataPoint>
   lastEmitTime: number
   throttleMs: number
   lastApiPoll: number
   apiPollInterval: number
   isPolling: boolean
+  // Observable reuse fields
+  sharedObservable?: Observable<ChannelMessage>
+  subscriberCount: number
 }
 
 export interface ChannelStats {

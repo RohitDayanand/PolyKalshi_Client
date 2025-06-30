@@ -13,18 +13,13 @@ import {
   CHART_RETRY_CONFIG,
   updateChartTimeScale,
 } from '@/lib/ChartStuff/chart-config'
-import {
-  generateRangeData,
-  generateStreamingData,
-  getNextRealtimeUpdate,
-} from '@/lib/ChartStuff/chart-utils'
+
 import { ChartSeriesRefs, SeriesType, TimeRange } from '@/lib/ChartStuff/chart-types'
 import type {
   Time,
   LineData,
   WhitespaceData,
 } from 'lightweight-charts'
-import { BASELINE_SUBSCRIPTION_IDS } from '@/lib/subscription-baseline'
 
 /*
 Todo: Migrate chart instance in redux to chartinstanceref
@@ -66,7 +61,7 @@ export function useChartInstance({
   /* --------------------------------------------------------------- */
   useEffect(() => {
     if (platform && marketId) {
-      // Platform and market setup
+      console.log(`🔗 useChartInstance [${chartId}]: Platform: ${platform}, Market ID: ${marketId}`)
     }
   }, [platform, marketId, chartId])
 
@@ -118,6 +113,7 @@ export function useChartInstance({
   /* --------------------------------------------------------------- */
   useEffect(() => {
     renderCount.current += 1
+    console.log("Ran at time in order useEffect main", renderCount)
     if (!isVisible) return
 
     let timeoutId: NodeJS.Timeout | null = null
@@ -179,6 +175,7 @@ export function useChartInstance({
       
       // NOTE: Price series creation is now handled by useOverlayManager
       // This prevents duplication and centralizes all series management
+      console.log('📊 Chart Instance - Chart created, price series will be managed by useOverlayManager')
 
       chart.timeScale().fitContent()
       chart.timeScale().scrollToPosition(5, false)
@@ -208,6 +205,7 @@ export function useChartInstance({
     
     // NOTE: View changes are now handled by useOverlayManager
     // This prevents duplication and centralizes all series management
+    console.log('📊 Chart Instance - View change detected, will be handled by useOverlayManager:', newView)
     
     // Just fit content after view change
     const chart = chartInstanceRef.current
@@ -221,6 +219,7 @@ export function useChartInstance({
     
     // NOTE: Range changes for price series are now handled by useOverlayManager
     // This prevents duplication and centralizes all series management
+    console.log('� Chart Instance - Range change detected, will be handled by useOverlayManager:', newRange)
     
     // Just fit content after range change
     chart.timeScale().fitContent()
@@ -231,6 +230,7 @@ export function useChartInstance({
   /* --------------------------------------------------------------- */
   useEffect(() => {
     renderCount.current += 1
+    console.log("Ran at time in order useEffect viewState", renderCount)
     if (chartInstanceRef.current) {
       handleViewChange(selectedView)
     }
@@ -241,6 +241,7 @@ export function useChartInstance({
   /* --------------------------------------------------------------- */
   useEffect(() => {
     renderCount.current += 1
+    console.log("Ran at time in order useEffect range", renderCount)
     if (chartInstanceRef.current) {
       // Update time scale formatting for the new range
       updateChartTimeScale(chartInstanceRef.current, selectedRange)
@@ -258,6 +259,7 @@ export function useChartInstance({
     const targetWidth = width || chartContainerRef.current.clientWidth
     const targetHeight = height || chartContainerRef.current.clientHeight
 
+    console.log('📏 useChartInstance - Resizing chart:', { targetWidth, targetHeight })
 
     try {
       chartInstanceRef.current.applyOptions({
@@ -265,7 +267,7 @@ export function useChartInstance({
         height: targetHeight
       })
     } catch (error) {
-      // Error resizing chart
+      console.error('Error resizing chart:', error)
     }
   }, [])
 

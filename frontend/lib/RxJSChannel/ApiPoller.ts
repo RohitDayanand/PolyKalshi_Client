@@ -146,6 +146,7 @@ export class ApiPoller {
       if (newData.length > 0) {
         console.log(`🔄 [POLL_UPDATE] Received ${newData.length} new points for ${channelKey}`)
         
+        // @ERROR - this should HARD RESET cache - i.e use set initial data
         // Add to cache
         this.channelCache.addDataPoints(channelConfig, newData)
         channelConfig.lastApiPoll = Date.now()
@@ -277,7 +278,7 @@ export class ApiPoller {
     
     return candlesticks.map((candle: any) => ({
       time: candle.time, // Convert Unix seconds to milliseconds
-      value: candle[`price_${side}`],
+      value: candle[`${side}_price`],
       volume: candle.volume
     }))
   }

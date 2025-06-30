@@ -2,6 +2,8 @@ import { LineSeries as LightweightLineSeries, ISeriesApi, LineData, Time } from 
 import SeriesClass from './BaseClass'
 import { SeriesClassConstructorOptions, MarketDataUpdate, MarketDataPoint } from '../../../lib/ChartStuff/chart-types'
 import { seriesOptions } from '../../../lib/ChartStuff/chart-config'
+import { parseSubscriptionId } from '../utils/parseSubscriptionId'
+
 // import { marketDataEmitter } from '../../../lib/market-data-emitter' // No longer needed with RxJS channel manager
 
 export class LineSeries extends SeriesClass {
@@ -15,19 +17,13 @@ export class LineSeries extends SeriesClass {
       // Auto-subscribe to market data if subscription ID exists
       // Parse subscription ID to extract marketId, side, and timeRange
       if (this.subscriptionId) {
-        
-        // Parse subscription ID format: "marketId&side&timeRange" (RxJS format)
-        const subscriptionParts = this.subscriptionId.split('&')
-        if (subscriptionParts.length >= 3) {
-          const [marketId, sideStr, timeRange] = subscriptionParts
-          // Ensure side is lowercase to match RxJS MarketSide type
-          const side = sideStr.toLowerCase() as 'yes' | 'no'
-          
-          
-          
+        const parsed = parseSubscriptionId(this.subscriptionId)
+        if (parsed) {
+          const { marketId, side, timeRange } = parsed
           this.subscribe(marketId, side, timeRange as any)
         } else {
           // Invalid subscription ID format
+          console.error("X ERROR subscription_id is incorrect")
         }
       } else {
         // No subscription ID provided
@@ -69,4 +65,4 @@ export class LineSeries extends SeriesClass {
   }
 }
 
-export default LineSeries 
+export default LineSeries

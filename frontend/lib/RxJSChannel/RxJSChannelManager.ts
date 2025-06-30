@@ -1,5 +1,5 @@
 import { Subject, BehaviorSubject, Observable } from 'rxjs'
-import { filter, distinctUntilChanged } from 'rxjs/operators'
+import { filter, distinctUntilChanged, shareReplay } from 'rxjs/operators'
 import { TIME_RANGES } from '../ChartStuff/chart-types'
 import { 
   TimeRange, 
@@ -14,6 +14,7 @@ import {
 import { ChannelCache } from './ChannelCache'
 import { ApiPoller } from './ApiPoller'
 import { WebSocketHandler } from './WebSocketHandler'
+import {defer, of, merge} from 'rxjs'
 
 /**
  * Main RxJS Channel Manager - orchestrates all channel operations
@@ -75,30 +76,147 @@ export class RxJSChannelManager {
   ): Observable<ChannelMessage> {
     const channelKey = ChannelCache.generateChannelKey(marketId, side, range)
     
-    console.log(`🔍 [CHANNEL_MANAGER] Subscribe called for ${channelKey}`, {
-      marketId, side, range,
+    console.log(`🔍 [CHANNEL_MANAGER_SUBSCRIBE] Subscribe called for ${channelKey}`, {
+      marketId, 
+      side, 
+      range,
       channelExists: this.channels.has(channelKey),
-      totalChannels: this.channels.size
+      totalChannels: this.channels.size,
+      allChannelKeys: Array.from(this.channels.keys()),
+      requestedThrottleMs: throttleMs
     })
     
     // Create channel if it doesn't exist
+    // @TODO @ERROR - edit because we currently do not support Polymarket subscriptions 
     if (!this.channels.has(channelKey)) {
+      console.log(`🆕 [CHANNEL_MANAGER_SUBSCRIBE] Channel doesn't exist, creating new channel: ${channelKey}`)
       this.createChannel(marketId, side, range, 'polymarket', throttleMs)
     } else if (throttleMs !== undefined) {
       // Update throttling if provided
+      const oldThrottleMs = this.channels.get(channelKey)!.throttleMs
       this.channels.get(channelKey)!.throttleMs = throttleMs
+      console.log(`⚙️ [CHANNEL_MANAGER_SUBSCRIBE] Updated throttling for ${channelKey}: ${oldThrottleMs}ms -> ${throttleMs}ms`)
     }
 
-    // Emit cached data immediately if available
-    this.emitCachedDataIfAvailable(channelKey)
+    //Typechecker - we know this should not be null otherwise we have some serious prolems 
+    const channelConfig = this.channels.get(channelKey)!
+    const cacheSize = this.channelCache.getCachedData(channelConfig).length
     
-    // Return filtered observable for this channel
-    return this.channelSubject.pipe(
-      filter(message => message.channel === channelKey),
-      distinctUntilChanged((prev, curr) => 
-        JSON.stringify(prev.data) === JSON.stringify(curr.data)
-      )
-    )
+    console.log(`📊 [CHANNEL_MANAGER_SUBSCRIBE] Channel config details for ${channelKey}`, {
+      platform: channelConfig.platform,
+      throttleMs: channelConfig.throttleMs,
+      lastEmitTime: channelConfig.lastEmitTime,
+      lastApiPoll: channelConfig.lastApiPoll,
+      isPolling: channelConfig.isPolling,
+      subscriberCount: channelConfig.subscriberCount,
+      hasSharedObservable: !!channelConfig.sharedObservable,
+      cacheSize
+    })
+    
+    // Create shared observable if it doesn't exist
+    if (!channelConfig.sharedObservable) {
+      console.log(`🆕 [CHANNEL_MANAGER_OBSERVABLE] Creating new shared observable for ${channelKey}`, {
+        cacheSize,
+        hasLruCache: !!channelConfig.lruCache,
+        currentSubscriberCount: channelConfig.subscriberCount
+      })
+      channelConfig.sharedObservable = this.createSharedObservable(channelKey)
+      
+      // Emit cached data once when observable is first created
+      console.log(`📡 [CHANNEL_MANAGER_OBSERVABLE] Attempting to emit cached data for new observable: ${channelKey}`)
+    } else {
+      console.log(`♻️ [CHANNEL_MANAGER_OBSERVABLE] Reusing existing shared observable for ${channelKey}`, {
+        cacheSize,
+        currentSubscriberCount: channelConfig.subscriberCount,
+        willEmitCachedData: cacheSize > 0
+      })
+    }
+    
+    // Increment reference count
+    channelConfig.subscriberCount++
+    console.log(`📈 [CHANNEL_MANAGER_SUBSCRIBE] ${channelKey} subscriber count increased to: ${channelConfig.subscriberCount}`, {
+      totalChannels: this.channels.size,
+      cacheSize
+    })
+    
+    // Return the hydrated initial obserable
+    return this.getHydratedObservable(channelKey)
+  }
+
+  /**
+   * Subscribe with proper cleanup tracking for reference counting
+   */
+  subscribeWithCleanup(
+    marketId: string, 
+    side: MarketSide, 
+    range: TimeRange, 
+    throttleMs?: number
+  ): { observable: Observable<ChannelMessage>, unsubscribe: () => void } {
+    const channelKey = ChannelCache.generateChannelKey(marketId, side, range)
+    
+    console.log(`🔗 [CHANNEL_MANAGER_CLEANUP] Creating subscription with cleanup for ${channelKey}`, {
+      marketId,
+      side,
+      range,
+      throttleMs
+    })
+    
+    const observable = this.subscribe(marketId, side, range, throttleMs)
+    
+    const channelConfig = this.channels.get(channelKey)
+    const initialCacheSize = channelConfig ? this.channelCache.getCachedData(channelConfig).length : 0
+    
+    console.log(`✅ [CHANNEL_MANAGER_CLEANUP] Created subscription with cleanup for ${channelKey}`, {
+      initialSubscriberCount: channelConfig?.subscriberCount || 0,
+      initialCacheSize,
+      hasSharedObservable: !!channelConfig?.sharedObservable
+    })
+    
+    const unsubscribe = () => {
+      console.log(`🔌 [CHANNEL_MANAGER_UNSUBSCRIBE] Starting unsubscribe for ${channelKey}`, {
+        marketId,
+        side,
+        range
+      })
+      
+      const channelConfig = this.channels.get(channelKey)
+      if (channelConfig) {
+        const beforeCount = channelConfig.subscriberCount
+        const cacheSize = this.channelCache.getCachedData(channelConfig).length
+        
+        // Decrement reference count
+        channelConfig.subscriberCount = Math.max(0, channelConfig.subscriberCount - 1)
+        
+        console.log(`📉 [CHANNEL_MANAGER_UNSUBSCRIBE] ${channelKey} subscriber count decreased`, {
+          before: beforeCount,
+          after: channelConfig.subscriberCount,
+          cacheSize,
+          hasSharedObservable: !!channelConfig.sharedObservable
+        })
+        
+        // Clean up shared observable if no more subscribers
+        // Note: shareReplay with refCount: true should handle this automatically,
+        // but we can also explicitly clean up here for extra safety
+        if (channelConfig.subscriberCount === 0) {
+          console.log(`🧹 [CHANNEL_MANAGER_CLEANUP] No more subscribers for ${channelKey}, cleaning up shared observable`, {
+            finalCacheSize: cacheSize,
+            hadSharedObservable: !!channelConfig.sharedObservable,
+            totalChannels: this.channels.size
+          })
+          
+          // Clear the shared observable but keep the channel config and cache
+          channelConfig.sharedObservable = undefined
+          
+          console.log(`✅ [CHANNEL_MANAGER_CLEANUP] Cleaned up shared observable for ${channelKey}, cache preserved`)
+        } else {
+          console.log(`📊 [CHANNEL_MANAGER_UNSUBSCRIBE] ${channelKey} still has ${channelConfig.subscriberCount} subscribers, keeping shared observable`)
+        }
+      } else {
+        console.warn(`⚠️ [CHANNEL_MANAGER_UNSUBSCRIBE] Channel config not found for ${channelKey} during unsubscribe`)
+      }
+    }
+    
+    return { observable, unsubscribe }
   }
 
   /**
@@ -125,7 +243,6 @@ export class RxJSChannelManager {
    */
   onMarketSubscribed(marketId: string, platform: Platform): void {
     console.log(`🎯 [CHANNEL_MANAGER] Market subscribed: ${marketId} on ${platform}`)
-    console.log("I have an obvious error, yet I am being called ?")
     
     const sides: MarketSide[] = ['yes', 'no']
     const ranges: TimeRange[] = [...TIME_RANGES]
@@ -158,79 +275,131 @@ export class RxJSChannelManager {
   ): void {
     const channelKey = ChannelCache.generateChannelKey(marketId, side, range)
     
+    console.log(`🔧 [CHANNEL_MANAGER_CREATE] Creating new channel: ${channelKey}`, {
+      marketId,
+      side,
+      range,
+      platform,
+      requestedThrottleMs: throttleMs,
+      defaultThrottleMs: this.defaultThrottleMs,
+      totalChannelsBefore: this.channels.size
+    })
+    
+    const lruCache = this.channelCache.createLRUCache()
+    
     const channelConfig: ChannelConfig = {
       marketId,
       side,
       range,
       platform,
-      cache: [],
-      lruCache: this.channelCache.createLRUCache(),
+      lruCache,
       lastEmitTime: 0,
       throttleMs: throttleMs || this.defaultThrottleMs,
       lastApiPoll: 0,
       apiPollInterval: this.defaultApiPollInterval,
-      isPolling: false
+      isPolling: false,
+      // Observable reuse fields
+      sharedObservable: undefined,
+      subscriberCount: 0
     }
     
     this.channels.set(channelKey, channelConfig)
     
-    console.log(`✅ [CHANNEL_MANAGER] Created channel: ${channelKey}`, {
-      platform, throttleMs: channelConfig.throttleMs
+    console.log(`✅ [CHANNEL_MANAGER_CREATE] Successfully created channel: ${channelKey}`, {
+      platform, 
+      finalThrottleMs: channelConfig.throttleMs,
+      apiPollInterval: channelConfig.apiPollInterval,
+      totalChannelsAfter: this.channels.size,
+      hasLruCache: !!channelConfig.lruCache,
+      maxCacheSize: this.maxCacheSize
     })
     
     // Fetch initial data using ApiPoller
+    console.log(`📥 [CHANNEL_MANAGER_CREATE] Initiating initial data fetch for: ${channelKey}`)
     this.apiPoller.fetchInitialData(channelKey, channelConfig)
   }
 
   /**
-   * Emit cached data immediately if available for new subscribers
+   * Create a shared observable with automatic cleanup for a specific channel
    */
-  private emitCachedDataIfAvailable(channelKey: string): void {
+  private createSharedObservable(channelKey: string): Observable<ChannelMessage> {
     const channelConfig = this.channels.get(channelKey)
-    if (!channelConfig || !this.channelCache.hasData(channelConfig)) {
-      return
-    }
-
-    const cachedData = this.channelCache.getCachedData(channelConfig)
-    if (cachedData.length > 0) {
-      console.log(`📡 [IMMEDIATE_CACHE_EMIT] Emitting ${cachedData.length} cached points to new ${channelKey} subscriber`)
-      
-      // Emit cached data asynchronously
-      setTimeout(() => {
-        const message: ChannelMessage = {
-          channel: channelKey,
-          updateType: 'initial_data',
-          data: cachedData
+    const cacheSize = channelConfig ? this.channelCache.getCachedData(channelConfig).length : 0
+    
+    console.log(`🔄 [CHANNEL_MANAGER_OBSERVABLE_CREATE] Creating shared observable for ${channelKey}`, {
+      channelExists: !!channelConfig,
+      cacheSize,
+      subscriberCount: channelConfig?.subscriberCount || 0,
+      platform: channelConfig?.platform,
+      throttleMs: channelConfig?.throttleMs
+    })
+    
+    const sharedObservable = this.channelSubject.pipe(
+      filter(message => {
+        const matches = message.channel === channelKey
+        if (matches) {
+          console.log(`📨 [CHANNEL_MANAGER_FILTER] Message passed filter for ${channelKey}`, {
+            updateType: message.updateType,
+            dataLength: Array.isArray(message.data) ? message.data.length : 1
+          })
         }
-        this.channelSubject.next(message)
-      }, 0)
-    }
+        return matches
+      }),
+      distinctUntilChanged((prev, curr) => {
+        const isDuplicate = JSON.stringify(prev.data) === JSON.stringify(curr.data)
+        if (isDuplicate) {
+          console.log(`🔄 [CHANNEL_MANAGER_DEDUPE] Filtered out duplicate message for ${channelKey}`, {
+            updateType: curr.updateType
+          })
+        }
+        return isDuplicate
+      }),
+      shareReplay({
+        refCount: true, 
+        bufferSize: 0})
+    )
+    
+    console.log(`✅ [CHANNEL_MANAGER_OBSERVABLE_CREATE] Created shared observable for ${channelKey}`, {
+      cacheSize,
+      willAutoCleanup: true
+    })
+    
+    return sharedObservable
   }
 
-  /**
-   * Manually replay historical data for a channel
-   */
-  replay(marketId: string, side: MarketSide, range: TimeRange): void {
-    const channelKey = ChannelCache.generateChannelKey(marketId, side, range)
+  private getHydratedObservable(channelKey: string): Observable<ChannelMessage> {
     const channelConfig = this.channels.get(channelKey)
-    
     if (!channelConfig) {
-      console.warn(`[CHANNEL_MANAGER] Cannot replay: channel ${channelKey} not found`)
-      return
+      throw new Error(`[CHANNEL_MANAGER] Channel ${channelKey} not found`)
     }
 
-    const cachedData = this.channelCache.getCachedData(channelConfig)
-    if (cachedData.length > 0) {
-      const message: ChannelMessage = {
+    // Ensure we have one shared live stream
+    if (!channelConfig.sharedObservable) {
+      channelConfig.sharedObservable = this.createSharedObservable(channelKey)
+    }
+    const live$ = channelConfig.sharedObservable
+
+    // 🔑  defer guarantees the snapshot lookup happens for *every* subscriber
+    return defer(() => {
+      const snapshot = this.channelCache.getCachedData(channelConfig)
+
+      // No history yet?  Just hand back the live stream.
+      if (snapshot.length === 0) {
+        return live$
+      }
+
+      const initialMsg: ChannelMessage = {
         channel: channelKey,
         updateType: 'initial_data',
-        data: cachedData
+        data: snapshot
       }
-      
-      this.channelSubject.next(message)
-      console.log(`🔄 [CHANNEL_MANAGER] Replayed ${cachedData.length} points for ${channelKey}`)
-    }
+
+      // Emit snapshot first, then live updates
+      //First emits initial message
+      return merge(of(initialMsg), live$)
+    })
   }
+
 
   /**
    * Get WebSocket connection status
@@ -270,7 +439,7 @@ export class RxJSChannelManager {
 
     for (const [channelKey, config] of this.channels.entries()) {
       const cacheStats = this.channelCache.getCacheStats(config)
-      stats.totalCacheSize += cacheStats.arrayCacheSize
+      stats.totalCacheSize += cacheStats.lruCacheSize
       
       const channelStats: ChannelStats = {
         channelKey,
@@ -278,7 +447,7 @@ export class RxJSChannelManager {
         side: config.side,
         range: config.range,
         platform: config.platform,
-        cacheSize: cacheStats.arrayCacheSize,
+        cacheSize: cacheStats.lruCacheSize,
         lruCacheSize: cacheStats.lruCacheSize,
         throttleMs: config.throttleMs,
         lastEmitTime: config.lastEmitTime,
@@ -313,7 +482,10 @@ export class RxJSChannelManager {
     
     console.log('✅ [CHANNEL_MANAGER] RxJSChannelManager destroyed')
   }
+
+  
 }
+
 
 // Export singleton instance
 export const rxjsChannelManager = new RxJSChannelManager()
