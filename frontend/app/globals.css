@@ -1,0 +1,151 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 0 0% 3.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 3.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 3.9%;
+    --primary: 0 0% 9%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 0 0% 96.1%;
+    --secondary-foreground: 0 0% 9%;
+    --muted: 0 0% 96.1%;
+    --muted-foreground: 0 0% 45.1%;
+    --accent: 0 0% 96.1%;
+    --accent-foreground: 0 0% 9%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 0 0% 89.8%;
+    --input: 0 0% 89.8%;
+    --ring: 0 0% 3.9%;
+    --chart-1: 12 76% 61%;
+    --chart-2: 173 58% 39%;
+    --chart-3: 197 37% 24%;
+    --chart-4: 43 74% 66%;
+    --chart-5: 27 87% 67%;
+    --radius: 0.5rem;
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 240 5.3% 26.1%;
+    --sidebar-primary: 240 5.9% 10%;
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 240 4.8% 95.9%;
+    --sidebar-accent-foreground: 240 5.9% 10%;
+    --sidebar-border: 220 13% 91%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+    
+    /* Trading Platform Colors */
+    --strike-green: #00d4aa;
+    --strike-red: #ff4747;
+    --trader-bg: #000000;
+    --trader-card: #111111;
+    --trader-border: #232323;
+  }
+  
+  .dark {
+    /* Enhanced Dark Theme for Trading Interface */
+    --background: 0 0% 0%; /* Pure black background */
+    --foreground: 0 0% 100%; /* Pure white text */
+    --card: 0 0% 6.7%; /* Dark gray cards (#111111) */
+    --card-foreground: 0 0% 100%; /* White text on cards */
+    --popover: 0 0% 6.7%;
+    --popover-foreground: 0 0% 100%;
+    --primary: 0 0% 100%; /* White primary */
+    --primary-foreground: 0 0% 0%; /* Black on white primary */
+    --secondary: 0 0% 13.7%; /* Slightly lighter gray (#232323) */
+    --secondary-foreground: 0 0% 100%;
+    --muted: 0 0% 13.7%;
+    --muted-foreground: 0 0% 73.9%; /* Light gray text */
+    --accent: 0 0% 13.7%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 62.8% 50.6%; /* Brighter red for visibility */
+    --destructive-foreground: 0 0% 100%;
+    --border: 0 0% 13.7%; /* #232323 borders */
+    --input: 0 0% 13.7%;
+    --ring: 0 0% 83.1%;
+    --chart-1: 142 76% 36%; /* Green for charts */
+    --chart-2: 346 77% 49%; /* Red for charts */
+    --chart-3: 221 83% 53%; /* Blue */
+    --chart-4: 262 83% 58%; /* Purple */
+    --chart-5: 43 96% 56%; /* Yellow */
+    --sidebar-background: 0 0% 6.7%;
+    --sidebar-foreground: 0 0% 100%;
+    --sidebar-primary: 142 76% 36%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 0 0% 13.7%;
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-border: 0 0% 13.7%;
+    --sidebar-ring: 142 76% 36%;
+    
+    /* Trading Platform Colors */
+    --strike-green: #00d4aa;
+    --strike-red: #ff4747;
+    --trader-bg: #000000;
+    --trader-card: #111111;
+    --trader-border: #232323;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    background-color: #000000 !important;
+    color: #ffffff !important;
+  }
+  
+  /* Trader View Styling */
+  .trader-bg {
+    background-color: var(--trader-bg);
+  }
+  
+  .trader-card {
+    background-color: var(--trader-card);
+    border-color: var(--trader-border);
+  }
+  
+  /* Ensure all text is visible */
+  h1, h2, h3, h4, h5, h6, p, span, div, button, input, select, label {
+    color: inherit;
+  }
+  
+  /* Override any potential light theme remnants */
+  .text-muted-foreground {
+    color: hsl(var(--muted-foreground)) !important;
+  }
+  
+  /* Card backgrounds */
+  .card {
+    background-color: var(--trader-card) !important;
+    border-color: var(--trader-border) !important;
+    color: #ffffff !important;
+  }
+  
+  /* Button styling */
+  .btn, button {
+    color: #ffffff !important;
+  }
+  
+  /* Input styling */
+  input, select, textarea {
+    background-color: var(--trader-card) !important;
+    border-color: var(--trader-border) !important;
+    color: #ffffff !important;
+  }
+}
