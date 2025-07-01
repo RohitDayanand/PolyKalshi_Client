@@ -134,10 +134,14 @@ def process_kalshi_candlesticks(raw_data: Dict, market_info: Dict[str, str]) -> 
 
             processed_candle = {
                 "time": end_period_ts,
-                "open": quote_midprice(yes_bid, yes_ask, OHLC.OPEN),
-                "high": quote_midprice(yes_bid, yes_ask, OHLC.HIGH), 
-                "low": quote_midprice(yes_bid, yes_ask, OHLC.LOW),
-                "close": quote_midprice(yes_bid, yes_ask, OHLC.CLOSE),
+                "yes_open": quote_midprice(yes_bid, yes_ask, OHLC.OPEN),
+                "yes_high": quote_midprice(yes_bid, yes_ask, OHLC.HIGH), 
+                "yes_low": quote_midprice(yes_bid, yes_ask, OHLC.LOW),
+                "yes_close": quote_midprice(yes_bid, yes_ask, OHLC.CLOSE),
+                "no_open": quote_midprice(yes_bid, yes_ask, OHLC.OPEN, isNo=True),
+                "no_high": quote_midprice(yes_bid, yes_ask, OHLC.HIGH, isNo=True),
+                "no_low": quote_midprice(yes_bid, yes_ask, OHLC.LOW, isNo=True),
+                "no_close": quote_midprice(yes_bid, yes_ask, OHLC.CLOSE, isNo=True),
                 "volume": candle.get("volume", 0),
                 "yes_price": quote_midprice(yes_bid, yes_ask, OHLC.CLOSE),
                 "no_price": quote_midprice(yes_ask, yes_bid, OHLC.CLOSE, isNo=True),

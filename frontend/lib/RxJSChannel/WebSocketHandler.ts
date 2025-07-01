@@ -2,6 +2,7 @@ import { Subject, BehaviorSubject } from 'rxjs'
 import { TIME_RANGES } from '../ChartStuff/chart-types'
 import { DataPoint, TickerData, ChannelMessage, ChannelConfig, MarketSide } from './types'
 import { ChannelCache } from './ChannelCache'
+import { chooseTimestamp } from './util'
 
 /**
  * Handles WebSocket connections and message processing
@@ -98,10 +99,13 @@ export class WebSocketHandler {
       volume: sideData.volume
     }
 
-    // Emit to all time ranges for this side
+    // Emit to all time ranges for this side with the choosen time ranges
     for (const range of TIME_RANGES) {
       const channelKey = ChannelCache.generateChannelKey(marketId, side, range)
       const channelConfig = this.channels.get(channelKey)
+
+      //reassign datapoint time bassed on ranged views 
+      const timeAwareDataPoint: DataPoint = chooseTimestamp(range, dataPoint)
       
       console.log(`🔍 [EMISSION_ATTEMPT] Attempting to emit to channel:`, {
         marketId,
@@ -113,13 +117,14 @@ export class WebSocketHandler {
       })
       
       if (channelConfig) {
-        this.emitToChannel(channelKey, channelConfig, dataPoint)
+        this.emitToChannel(channelKey, channelConfig, timeAwareDataPoint)
         console.log(`✅ [EMISSION_SUCCESS] Data emitted to channel: ${channelKey}`)
       } else {
         console.warn(`🚨 [EMISSION_FAILED] Channel does not exist: ${channelKey} - no subscribers yet?`)
       }
     }
   }
+
 
   /**
    * Emit data point to specific channel with throttling

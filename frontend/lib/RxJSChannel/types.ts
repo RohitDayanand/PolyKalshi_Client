@@ -15,6 +15,7 @@ export interface DataPoint {
   time: number
   value: number
   volume?: number
+  candlestick?: OHLC
 }
 
 export interface TickerData {
@@ -28,10 +29,20 @@ export interface TickerData {
   timestamp: number
 }
 
+export interface OHLC {
+  time: number,
+  open: number,
+  high: number,
+  low: number,
+  close: number
+
+}
+
 export interface ChannelMessage {
   channel: string
   updateType: UpdateType
   data: DataPoint | DataPoint[]
+  candlestick?: OHLC | OHLC[]
 }
 
 /*

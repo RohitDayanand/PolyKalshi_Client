@@ -45,7 +45,7 @@ export default abstract class SeriesClass {
   protected children: SeriesClass[]
   protected chartInstance: IChartApi
   protected seriesApi: ISeriesApi<any> | null
-  protected subscriptionId: string | null
+  protected subscriptionId: string | null//Must be ssubscribed at any particular time
   private rxjsSubscription: Subscription | null = null
   private rxjsUnsubscribe: (() => void) | null = null  // Cleanup function for observable reuse
   private isSubscribed: boolean = false // Track subscription state
@@ -219,11 +219,11 @@ export default abstract class SeriesClass {
                 lastPoint: initialData[initialData.length - 1] ? { time: initialData[initialData.length - 1].time, value: initialData[initialData.length - 1].value } : null
               })
               
-              // Convert DataPoint to chart format and use common updateData method
-              const chartData = initialData.map(point => ({
-                time: point.time as any,
-                value: point.value
-              }))
+              // Convert DataPoint to chart format and use common updateData method. 
+              // Default, we will just map the time and value, but subclasses can override the map
+              // and retrieve the custom data that they want 
+              
+              const chartData = this.mapDataPointsToChartData(initialData)
               
               this.updateData(chartData)
               console.log(`✅ [BASECLASS_INITIAL_DATA] ${this.seriesType} - Successfully set initial data with ${chartData.length} points`)
@@ -371,6 +371,19 @@ export default abstract class SeriesClass {
       })
       this.onError(`Unsubscription failed: ${error}`)
     }
+  }
+
+  /**
+  * Converts an array of DataPoint objects to the chart data format expected by lightweight-charts.
+  * Subclasses can override this to provide custom mapping (e.g., OHLC, volume, etc).
+  */
+
+  protected mapDataPointsToChartData(dataPoints: DataPoint[]): any[] {
+    // Default implementation: map to { time, value }
+    return dataPoints.map(point => ({
+      time: point.time as any,
+      value: point.value
+    }))
   }
 
   // Common data update methods that work for all series types
