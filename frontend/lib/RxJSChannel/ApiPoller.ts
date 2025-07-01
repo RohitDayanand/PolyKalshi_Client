@@ -279,7 +279,14 @@ export class ApiPoller {
     return candlesticks.map((candle: any) => ({
       time: candle.time, // Convert Unix seconds to milliseconds
       value: candle[`${side}_price`],
-      volume: candle.volume
+      volume: candle.volume,
+      candlestick: {time: candle.time, 
+        open: candle[`${side}_open`],
+        high: candle[`${side}_high`],
+        low: candle[`${side}_low`],
+        close: candle[`${side}_close`]
+      }
+
     }))
   }
 

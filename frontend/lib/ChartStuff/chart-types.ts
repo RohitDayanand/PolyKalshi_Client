@@ -59,7 +59,7 @@ export interface SeriesClassConstructorOptions {
   chartInstance: IChartApi;
   seriesType: SeriesType;
   parent?: any; // Will be SeriesClass but avoiding circular import
-  subscriptionId?: string; // Optional override, otherwise pulls from Redux
+  subscriptionId: string; // Each series must own a subscription 
 }
 
 // Overlay management types for global store

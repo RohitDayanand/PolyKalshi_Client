@@ -1,6 +1,9 @@
 import { CandlestickSeries as LightweightCandlestickSeries, ISeriesApi, CandlestickData, Time } from 'lightweight-charts'
 import SeriesClass from './BaseClass'
 import { SeriesClassConstructorOptions, MarketDataUpdate, MarketDataPoint } from '../../../lib/ChartStuff/chart-types'
+import {parseSubscriptionId} from '../utils/parseSubscriptionId'
+import { DataPoint } from '@/lib/RxJSChannel'
+import { OHLC } from '@/lib/RxJSChannel/types'
 
 /**
  * CANDLESTICK OVERLAY COMPONENT
@@ -160,14 +163,12 @@ export class CandleStick extends SeriesClass {
       // Auto-subscribe to market data if subscription ID exists
       // Parse subscription ID to extract marketId, side, and timeRange
       if (this.subscriptionId) {
+        const newSubscriptionId = parseSubscriptionId(this.subscriptionId)
+        if (newSubscriptionId) {
         console.log(`🔗 CandleStick - Attempting subscription with ID: ${this.subscriptionId}`)
         
-        // Parse subscription ID format: "seriesType&timeRange&marketId"
-        const subscriptionParts = this.subscriptionId.split('&')
-        if (subscriptionParts.length >= 3) {
-          const [seriesTypeStr, timeRange, ...marketIdParts] = subscriptionParts
-          const marketId = marketIdParts.join('&') // Rejoin in case marketId contains &
-          const side = seriesTypeStr.toLowerCase() as 'yes' | 'no'
+          // Parse subscription ID format: "seriesType&timeRange&marketId"
+          const {marketId, side, timeRange} = newSubscriptionId
           
           console.log(`📊 CandleStick - Parsed subscription details:`, {
             subscriptionId: this.subscriptionId,
@@ -179,7 +180,7 @@ export class CandleStick extends SeriesClass {
           
           this.subscribe(marketId, side, timeRange as any)
         } else {
-          console.error(`❌ CandleStick - Invalid subscription ID format: ${this.subscriptionId}`)
+          console.error(`❌ CandleStick - Invalid parsed subscription ID format: ${this.subscriptionId}`)
         }
       } else {
         console.warn(`⚠️ CandleStick - No subscription ID provided for ${this.seriesType} series`)
@@ -220,29 +221,36 @@ export class CandleStick extends SeriesClass {
     }
   }
 
+  /*
+  @overide
+  Override the mapping logic in base class to get the candlestick data from historical candlesticks
+  */
+  protected mapDataPointsToChartData(dataPoints: DataPoint[]): any[] {
+    return dataPoints.map(point => ({
+      open: point.candlestick?.open,
+      high: point.candlestick?.high,
+      low: point.candlestick?.low,
+      close: point.candlestick?.close,
+      time: point.time as any
+    }))
+  }
+
+
   /**
    * CUSTOM DATA PROCESSING: Override updateData for initial candlestick calculation
    * Processes full dataset and converts price points into OHLC candles
+   * IseriesAPI accepts different formats for timestamps, so we are type flexible on this to process
+   * different variants
    */
-  protected updateData(data: Array<{ time: any, value: number }>): void {
+  protected updateData(data: any[]): void {
     try {
       console.log(`📊 CandleStick ${this.seriesType} - Processing ${data.length} price points for candlestick aggregation`)
-      
-      // Store raw data and convert to candles
-      this.rawDataBuffer = [...data]
-      this.candleData = this.aggregateDataIntoCandles(this.rawDataBuffer)
-      
-      // Update the chart series with calculated candlestick data
-      if (this.seriesApi && this.candleData.length > 0) {
-        this.seriesApi.setData(this.candleData)
-        console.log(`✅ CandleStick ${this.seriesType} - Updated chart with ${this.candleData.length} candles`)
-      } else {
-        console.log(`⚠️ CandleStick ${this.seriesType} - No candles generated from ${this.rawDataBuffer.length} price points`)
-      }
-    } catch (error) {
-      console.error(`❌ CandleStick ${this.seriesType} - Failed to update candlestick data:`, error)
-      this.onError(`Candlestick update failed: ${error}`)
+      this.candlestickSeriesApi?.setData(data)
     }
+    catch (error) {
+
+    }
+      
   }
   
   /**
@@ -250,6 +258,7 @@ export class CandleStick extends SeriesClass {
    * Efficiently updates current candle or creates new candle based on timeframe
    */
   protected appendData(dataPoint: { time: any, value: number }): void {
+
     try {
       console.log(`📈 CandleStick ${this.seriesType} - Processing new price point:`, dataPoint)
       
@@ -331,9 +340,6 @@ export class CandleStick extends SeriesClass {
     return candles
   }
 
-  /**
-   * CANDLE CALCULATION: Get the start time for a candle based on timeframe
-   */
   private getCandleStartTime(timestamp: number): number {
     return Math.floor(timestamp / this.currentTimeframe) * this.currentTimeframe
   }
@@ -416,6 +422,7 @@ export class CandleStick extends SeriesClass {
       latestCandle
     }
   }
+
 
   /**
    * UTILITY: Change timeframe and re-aggregate data
