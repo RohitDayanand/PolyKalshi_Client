@@ -350,6 +350,8 @@ class KalshiMessageProcessor:
             raw_message: Raw JSON string from WebSocket
             metadata: Message metadata including ticker, channel, etc.
         """
+        with open("/tmp/kalshi_raw_messages.log", "a") as f:
+                f.write(f"{datetime.now().isoformat()} {raw_message}\n")
         try:
             # Log raw message receipt
             logger.debug(f"📨 KALSHI MSG: Received raw message (length: {len(raw_message)})")
