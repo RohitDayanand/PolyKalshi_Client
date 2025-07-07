@@ -152,8 +152,6 @@ export class CandleStick extends SeriesClass {
       this.options.title = `${this.seriesType} Candlesticks`
     }
     
-    // Resolve timeframe: either use provided value or auto-derive from subscription ID
-    this.currentTimeframe = this.resolveTimeframe()
     
     //Create the series in the subclass to stay consistent with design patterns 
     try {
@@ -235,6 +233,16 @@ export class CandleStick extends SeriesClass {
     }))
   }
 
+  protected mapUpdateToChartData(dataPoint: DataPoint) {
+    return {
+      open: dataPoint.candlestick?.open,
+      high: dataPoint.candlestick?.high,
+      low: dataPoint.candlestick?.low,
+      close: dataPoint.candlestick?.close,
+      time: dataPoint.time as Time
+    }
+  }
+
 
   /**
    * CUSTOM DATA PROCESSING: Override updateData for initial candlestick calculation
@@ -245,9 +253,13 @@ export class CandleStick extends SeriesClass {
   protected updateData(data: any[]): void {
     try {
       console.log(`📊 CandleStick ${this.seriesType} - Processing ${data.length} price points for candlestick aggregation`)
+      if (! this.candlestickSeriesApi) {
+        throw Error("Candlestick series API not created? Race condition?")
+      }
       this.candlestickSeriesApi?.setData(data)
     }
     catch (error) {
+      console.log("Failed to append", error)
 
     }
       
@@ -256,94 +268,44 @@ export class CandleStick extends SeriesClass {
   /**
    * CUSTOM DATA PROCESSING: Override appendData for real-time candlestick updates
    * Efficiently updates current candle or creates new candle based on timeframe
+   * Gets only the candle at some timestamp from the applied map
    */
-  protected appendData(dataPoint: { time: any, value: number }): void {
+  protected appendData(dataPoint: { open: number, high: number, low: number, close: number, time: number }): void {
+    //Null proof the individual numbers 
 
     try {
       console.log(`📈 CandleStick ${this.seriesType} - Processing new price point:`, dataPoint)
       
+      //For candlestick data, the flooring and calculation is done by the backend to ensure idempotency 
+      //Currently, candlestick data only supports 1 range (1H) because of candlestick compute limitations 
+
       // Add new point to raw data buffer
-      this.rawDataBuffer.push(dataPoint)
       
-      // Get timestamp from dataPoint (convert if needed)
-      const timestamp = typeof dataPoint.time === 'number' ? dataPoint.time * 1000 : new Date(dataPoint.time).getTime()
-      
-      // Determine which candle this point belongs to
-      const candleStartTime = this.getCandleStartTime(timestamp)
-      
-      // Update or create candle
-      const updatedCandle = this.updateOrCreateCandle(candleStartTime, timestamp, dataPoint.value)
-      
-      if (updatedCandle) {
-        // Convert to LightweightCharts format
-        const lightweightCandle: CandlestickData = {
-          time: (updatedCandle.startTime / 1000) as Time,
-          open: updatedCandle.open,
-          high: updatedCandle.high,
-          low: updatedCandle.low,
-          close: updatedCandle.close
-        }
-        
-        // Update or append to chart
-        if (this.seriesApi) {
-          // Check if this is updating the last candle or adding a new one
-          const isNewCandle = this.candleData.length === 0 || 
-                             (this.candleData[this.candleData.length - 1].time as number) < (lightweightCandle.time as number)
-          
-          if (isNewCandle) {
-            // Add new candle to our data array
-            this.candleData.push(lightweightCandle)
-            console.log(`📊 CandleStick ${this.seriesType} - Added new candle:`, lightweightCandle)
-          } else {
-            // Update existing candle in our data array
-            this.candleData[this.candleData.length - 1] = lightweightCandle
-            console.log(`🔄 CandleStick ${this.seriesType} - Updated current candle:`, lightweightCandle)
-          }
-          
-          // Update the chart
-          this.seriesApi.update(lightweightCandle)
-        }
+      //explicit type check to lightweight-charts format
+      const lightweightCandle: CandlestickData = {
+        open: dataPoint.open,
+        high: dataPoint.high,
+        low: dataPoint.low,
+        close: dataPoint.close,
+        time: dataPoint.time as Time //where is the time utility
       }
+
+      // Update or append to chart
+      if (this.candlestickSeriesApi) {
+        // Check if this is updating the last candle or adding a new one
+        try {
+          // Update the chart
+          this.candlestickSeriesApi.update(lightweightCandle)
+        } catch (error) {
+          console.log(`Couldnt append to candlestick series because of error ${error}`)
+        }
+      } 
     } catch (error) {
-      console.error(`❌ CandleStick ${this.seriesType} - Failed to append candlestick data:`, error)
-      this.onError(`Candlestick append failed: ${error}`)
+      console.log("Candlestick creation went wrong", error)
     }
   }
 
-  /**
-   * CANDLE AGGREGATION: Convert price data into OHLC candles
-   * Groups price points by timeframe and calculates OHLC values
-   */
-  private aggregateDataIntoCandles(data: Array<{ time: any, value: number }>): Array<CandlestickData> {
-    this.candleBuffer.clear()
-    
-    // Process each price point
-    data.forEach(point => {
-      const timestamp = typeof point.time === 'number' ? point.time * 1000 : new Date(point.time).getTime()
-      const candleStartTime = this.getCandleStartTime(timestamp)
-      
-      this.updateOrCreateCandle(candleStartTime, timestamp, point.value)
-    })
-    
-    // Convert to LightweightCharts format and sort by time
-    const candles: Array<CandlestickData> = Array.from(this.candleBuffer.values())
-      .sort((a, b) => a.startTime - b.startTime)
-      .map(candle => ({
-        time: (candle.startTime / 1000) as Time,
-        open: candle.open,
-        high: candle.high,
-        low: candle.low,
-        close: candle.close
-      }))
-    
-    console.log(`📊 CandleStick ${this.seriesType} - Aggregated ${data.length} price points into ${candles.length} candles`)
-    return candles
-  }
-
-  private getCandleStartTime(timestamp: number): number {
-    return Math.floor(timestamp / this.currentTimeframe) * this.currentTimeframe
-  }
-
+  
   /**
    * CANDLE CALCULATION: Update existing candle or create new one
    */

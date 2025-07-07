@@ -163,24 +163,38 @@ class TickerStreamManager:
 stream_manager = TickerStreamManager()
 
 # Utility functions for market subscription API
-def validate_market_request(platform: str, market_identifier: str) -> None:
+def validate_market_request(platform: str, market_identifier: str, token_ids: any = "") -> None:
     """Validate market subscription request parameters"""
+
     if platform not in ["polymarket", "kalshi"]:
         raise ValueError(f"Unsupported platform: {platform}. Must be 'polymarket' or 'kalshi'")
     
     if platform == "polymarket":
         # Validate Polymarket token ID format (long numeric string, typically 77+ digits)
-        if not market_identifier.isdigit() or len(market_identifier) < 70:
-            raise ValueError("Invalid Polymarket token ID format. Must be a long numeric string (70+ digits)")
-    
+        #attempt parsing the actual market_identifier 
+
+        #we assume that this is correct because frontend controls logic
+        print("no logic")
+
     elif platform == "kalshi":
         # Validate Kalshi market slug format (uppercase alphanumeric with hyphens)
         if not re.match(r'^[A-Z0-9\-]+$', market_identifier):
             raise ValueError("Invalid Kalshi market slug format. Must be uppercase alphanumeric with hyphens")
 
-def generate_market_id(platform: str, identifier: str) -> str:
+def generate_market_id(platform: str, identifier: str, token_ids: any = "") -> str:
     """Generate standardized market_id for WebSocket subscriptions"""
-    return f"{platform}_{identifier}"
+    if platform == 'polymarket':
+        #check whet
+        try: 
+            token_string = ",".join(token_ids)
+            return f"{platform}_{token_string}"
+        except json.JSONDecodeError as e:
+            print("Error detected - not jsonable. Check closely what the python server recieves")
+            
+    elif platform == 'kalshi':
+        return f"{platform}_{identifier}"
+    else:
+        return "ID_GENERATION_FAILED"
 
 def parse_market_string_id(market_string_id: str) -> Dict[str, str]:
     """Parse marketStringId format: ticker&side&range"""
@@ -224,13 +238,12 @@ async def initialize_markets_manager():
         logger.error(f"Failed to initialize MarketsManager: {e}")
         return False
 
-async def handle_market_connection(platform: str, market_identifier: str) -> Dict[str, any]:
+async def handle_market_connection(platform: str, market_id: str) -> Dict[str, any]:
     """
     Handle market connection via MarketsManager
     
     Returns connection result with status and details
     """
-    market_id = generate_market_id(platform, market_identifier)
     
     try:
         # Set initial state
@@ -238,7 +251,7 @@ async def handle_market_connection(platform: str, market_identifier: str) -> Dic
             market_id=market_id,
             status="connecting", 
             platform=platform,
-            identifier=market_identifier,
+            identifier=market_id,
             message="Establishing connection to market data feed"
         )
         
@@ -249,15 +262,15 @@ async def handle_market_connection(platform: str, market_identifier: str) -> Dic
             success = False
         else:
             # Call MarketsManager.connect() with proper parameters
-            logger.info(f"Connecting to {platform} market via MarketsManager: {market_identifier}")
-            success = await markets_manager.connect(market_identifier, platform)
+            logger.info(f"Connecting to {platform} market via MarketsManager: {market_id}")
+            success = await markets_manager.connect(market_id, platform)
             
             if success:
                 connection_state_manager.update_status(market_id, "connected", "Connection established successfully")
-                logger.info(f"Successfully connected to {platform} market: {market_identifier}")
+                logger.info(f"Successfully connected to {platform} market: {market_id}")
             else:
                 connection_state_manager.update_status(market_id, "failed", "Failed to establish connection")
-                logger.error(f"Failed to connect to {platform} market: {market_identifier}")
+                logger.error(f"Failed to connect to {platform} market: {market_id}")
         
         return {
             "success": success,
@@ -266,7 +279,7 @@ async def handle_market_connection(platform: str, market_identifier: str) -> Dic
         }
         
     except Exception as e:
-        logger.error(f"Market connection error for {platform}:{market_identifier} - {e}")
+        logger.error(f"Market connection error for {platform}:{market_id} - {e}")
         connection_state_manager.update_status(market_id, "failed", f"Connection error: {str(e)}")
         return {
             "success": False,
@@ -301,6 +314,13 @@ async def startup_event():
     success = await initialize_markets_manager()
     if success:
         logger.info("✅ MarketsManager ready for market connections")
+        
+        # Start MarketsManager async components (queues and ticker publishers)
+        try:
+            await markets_manager.start_async_components()
+            logger.info("✅ MarketsManager ticker publishers started")
+        except Exception as e:
+            logger.error(f"❌ Failed to start MarketsManager async components: {e}")
     else:
         logger.warning("⚠️ MarketsManager not available - market connections will fail")
     
@@ -452,11 +472,17 @@ async def subscribe_to_market(request: MarketSubscriptionRequest):
     try:
         # Validate request parameters
         logger.info(f"🔎 Validating request parameters...")
-        validate_market_request(request.platform, request.market_identifier)
+        #Write the raw request to a temp file that I can access later on W
+
+        validate_market_request(
+            request.platform,
+            request.market_identifier,
+            token_ids = locals().get("token_ids") or ""
+        )
         logger.info(f"✅ Request validation passed")
         
         # Generate standardized market ID
-        market_id = generate_market_id(request.platform, request.market_identifier)
+        market_id = generate_market_id(request.platform, request.market_identifier, token_ids = locals().get("token_ids") or "")
         logger.info(f"🏷️ Generated market_id: {market_id}")
         
         # Check if already connected
@@ -482,7 +508,7 @@ async def subscribe_to_market(request: MarketSubscriptionRequest):
         
         # Handle new market connection
         logger.info(f"🚀 Initiating NEW connection to {request.platform} market: {request.market_identifier}")
-        connection_result = await handle_market_connection(request.platform, request.market_identifier)
+        connection_result = await handle_market_connection(request.platform, market_id)
         logger.info(f"🔄 Connection result: {connection_result}")
         
         elapsed_time = time.time() - start_time

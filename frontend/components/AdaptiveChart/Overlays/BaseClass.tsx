@@ -238,11 +238,7 @@ export default abstract class SeriesClass {
               })
               
               // Use common appendData method
-              const chartPoint = {
-                time: updatePoint.time as any,
-                value: updatePoint.value
-              }
-              this.appendData(chartPoint)
+              this.appendData(this.mapUpdateToChartData(updatePoint))
               console.log(`✅ [BASECLASS_UPDATE] ${this.seriesType} - Successfully appended update point`)
             }
           } catch (error) {
@@ -384,6 +380,13 @@ export default abstract class SeriesClass {
       time: point.time as any,
       value: point.value
     }))
+  }
+
+  protected mapUpdateToChartData(dataPoint: DataPoint): any {
+    return {
+      time: dataPoint.time,
+      value: dataPoint.value,
+    }
   }
 
   // Common data update methods that work for all series types

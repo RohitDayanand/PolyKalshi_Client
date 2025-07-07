@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { RefreshCw, Database, Clock, Check, X } from 'lucide-react'
 import { marketSearchService } from '@/lib/search-service'
-import type { SelectedToken } from '@/lib/ChartStuff/market-cache'
+import type { SelectedToken } from '@/lib/server-market-cache/types'
 
 interface CacheStats {
   marketCount: number
@@ -50,11 +50,9 @@ export function CacheDebugPanel() {
   }
 
   const clearSelectedTokens = async () => {
-    if (typeof window !== 'undefined') {
-      const cache = require('@/lib/browser-market-cache').browserMarketCache
-      cache.clearCache()
-      await loadCacheData()
-    }
+    // Clear via server API endpoint
+    await marketSearchService.clearCache()
+    await loadCacheData()
   }
 
   const formatTimeAgo = (timestamp: string) => {

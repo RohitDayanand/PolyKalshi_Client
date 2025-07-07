@@ -128,58 +128,19 @@ class PolymarketTickerPublisher:
             all_summaries = self.polymarket_processor.get_all_market_summaries()
             current_time = time.time()
             
-            self.stats["active_assets"] = len(all_summaries)
-            
             if not all_summaries:
                 logger.debug("No active Polymarket assets to publish")
                 return
             
-            published_count = 0
+            for key in ["yes", "no"]:
+                print("Checking market summary validation for polymarket market", self._is_valid_market_summary(all_summaries.get(key)))
             
-            for asset_id, market_summary in all_summaries.items():
-                try:
-                    # Check rate limiting per asset
-                    last_publish = self.last_publish_times.get(asset_id, 0)
-                    time_since_last = current_time - last_publish
-                    
-                    if time_since_last < self.publish_interval:
-                        self.stats["rate_limited"] += 1
-                        continue
-                    
-                    # Validate data quality
-                    if not self._is_valid_market_summary(market_summary):
-                        logger.debug(f"Invalid market summary for asset_id={asset_id}, skipping")
-                        continue
-                    
-                    # For Polymarket, we need to structure data as YES/NO format
-                    # Since each asset_id represents either YES or NO side,
-                    # we'll publish individual assets and let the frontend
-                    # pair them up based on the market context
-                    
-                    # Convert to YES/NO format - for individual assets, 
-                    # we treat the asset as the "yes" side and calculate "no" as inverse
-                    summary_stats = self._convert_to_yes_no_format(market_summary)
-                    
-                    # Create market_id from asset_id
-                    market_id = f"polymarket_{asset_id}"
-                    
-                    # Publish the update
-                    await self._safe_publish(market_id, summary_stats)
-                    
-                    # Update tracking
-                    self.last_publish_times[asset_id] = current_time
-                    published_count += 1
-                    self.stats["total_published"] += 1
-                    
-                except Exception as e:
-                    logger.error(f"Error publishing asset asset_id={asset_id}: {e}")
-                    self.stats["failed_publishes"] += 1
             
-            if published_count > 0:
-                logger.debug(f"Published {published_count} Polymarket asset updates")
-                
-        except Exception as e:
-            logger.error(f"Error in _publish_all_assets: {e}")
+            # Publish the update
+            await self._safe_publish(all_summaries["token_id"], {k: v for k, v in all_summaries.items() if k != "token_id"})
+        except KeyError as e:
+            print("Major exception")
+               
     
     def _convert_to_yes_no_format(self, market_summary: Dict[str, Optional[float]]) -> Dict[str, Dict[str, Optional[float]]]:
         """

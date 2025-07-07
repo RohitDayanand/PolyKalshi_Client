@@ -8,7 +8,10 @@
     "start": "next start",
     "lint": "next lint",
     "test:integration": "node -r ts-node/register lib/test-clob-integration.ts",
-    "test": "jest"
+    "test": "jest",
+    "debug": "node --inspect node_modules/.bin/next dev"
+
+
 
   },
   "dependencies": {

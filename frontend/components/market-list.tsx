@@ -8,7 +8,6 @@ import { Input } from "@/components/ui/input"
 import { PlusCircle, Search, Loader2, Check } from "lucide-react"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Badge } from "@/components/ui/badge"
-import { marketSearchService } from "@/lib/search-service"
 import type { Market } from "@/types/market"
 
 interface MarketListProps {
@@ -62,35 +61,27 @@ export function MarketList({ platform }: MarketListProps) {
     }
   }
 
+  /*
+  * Handle the add button by subscribing to market using WebSocket
+  */
   const handleMarketAdd = async (market: Market) => {
     try {
-      // First subscribe to the market for visualization
-      subscribeToMarket(platform, market)
-      
-      // Then get the full market data with token information for storage
-      const fullMarket = await marketSearchService.getMarket(market.id)
-      
-      if (fullMarket && fullMarket.clobTokenIds && fullMarket.clobTokenIds.length > 0) {
-        // For binary markets, default to the first token (usually "Yes")
-        const selectedTokenId = fullMarket.clobTokenIds[0]
-        const outcome = fullMarket.outcomes?.[0] || { name: 'Yes' }
-        
-        // Store the selected token (this will store both tokens from the pair)
-        await marketSearchService.storeSelectedToken(
-          market.id,
-          selectedTokenId,
-          outcome.name,
-          market.title
-        )
-        
-        // Update local selection state
-        setSelectedMarkets(prev => new Set([...prev, market.id]))
-        
-        console.log(`Added market: ${market.title}`)
-        console.log(`Token pair stored:`, fullMarket.clobTokenIds)
-      } else {
-        console.warn('No token IDs found for market:', market.id)
+      // Validate that market has required token data IF polymarket
+      if (market.platform == "polymarket" && (!market.tokenIds || market.tokenIds.length === 0)) {
+        console.warn('❌ No tokenIds found for polymarket market:', market.id)
+        return
       }
+      
+      console.log('🔍 DEBUG: Adding market with tokenIds:', market.tokenIds)
+      
+      // Subscribe to the market for WebSocket data and backend ticker
+      await subscribeToMarket(platform, market)
+      
+      // Update local selection state
+      setSelectedMarkets(prev => new Set([...prev, market.id]))
+      
+      console.log(`✅ Added market: ${market.title}`)
+      console.log(`✅ Token IDs:`, market.tokenIds)
     } catch (error) {
       console.error('Error adding market:', error)
     }

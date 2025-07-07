@@ -93,10 +93,20 @@ export class WebSocketHandler {
       ? (sideData.bid + sideData.ask) / 2 
       : 0.5
 
+    //Map the side's candlestick prices into the datapoint for the update 
+    const candlestick = {
+      open: tickerData.summary_stats.candlestick ? tickerData.summary_stats.candlestick[`${side}_open`] : null,
+      high: tickerData.summary_stats.candlestick ? tickerData.summary_stats.candlestick[`${side}_high`] : null,
+      low: tickerData.summary_stats.candlestick ? tickerData.summary_stats.candlestick[`${side}_low`] : null,
+      close: tickerData.summary_stats.candlestick ? tickerData.summary_stats.candlestick[`${side}_close`] : null,
+      time: tickerData.summary_stats.candlestick ? tickerData.summary_stats.candlestick.time :  null
+    }
+
     const dataPoint: DataPoint = {
       time: Math.floor(tickerData.timestamp),
       value: Math.max(0, Math.min(1, midpoint)),
-      volume: sideData.volume
+      volume: sideData.volume,
+      candlestick: candlestick
     }
 
     // Emit to all time ranges for this side with the choosen time ranges
@@ -107,13 +117,15 @@ export class WebSocketHandler {
       //reassign datapoint time bassed on ranged views 
       const timeAwareDataPoint: DataPoint = chooseTimestamp(range, dataPoint)
       
+      //@TODO - remove persistent logging
+      //@TODO - make charting logic async for high performance - not needed because internally throttled
       console.log(`🔍 [EMISSION_ATTEMPT] Attempting to emit to channel:`, {
         marketId,
         side,
         range,
         channelKey,
         channelExists: !!channelConfig,
-        dataPoint: { time: dataPoint.time, value: dataPoint.value, volume: dataPoint.volume }
+        dataPoint: { time: dataPoint.time, value: dataPoint.value, volume: dataPoint.volume, candlestick: dataPoint.candlestick }
       })
       
       if (channelConfig) {
@@ -152,7 +164,7 @@ export class WebSocketHandler {
     console.log(`📡 [DATA_EMITTED] WebSocket message sent to subscribers:`, {
       channel: channelKey,
       updateType: message.updateType,
-      dataPoint: { time: dataPoint.time, value: dataPoint.value },
+      dataPoint: { time: dataPoint.time, value: dataPoint.value, volume: dataPoint.volume, candlestick: dataPoint.candlestick},
       lruCacheSize: channelConfig.lruCache.size,
       timeSinceLastEmit: now - (channelConfig.lastEmitTime - channelConfig.throttleMs)
     })
