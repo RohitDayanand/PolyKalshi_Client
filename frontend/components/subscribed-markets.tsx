@@ -3,7 +3,6 @@
 import { useMarketSubscription } from "@/lib/store/marketSubscriptionHooks"
 import { useAppSelector } from "@/lib/store/hooks"
 import { selectSubscriptions } from "@/lib/store/apiSubscriptionSlice"
-import { marketSearchService } from "@/lib/search-service"
 import { useState, useEffect } from "react"
 import type { Market } from "@/types/market"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -15,29 +14,17 @@ import { Badge } from "@/components/ui/badge"
 export function SubscribedMarkets() {
   const { isWebSocketConnected } = useMarketSubscription()
   const subscriptions = useAppSelector(selectSubscriptions)
-  const [subscribedMarkets, setSubscribedMarkets] = useState<Market[]>([])
   
-  // Load subscribed markets from marketSearchService
-  useEffect(() => {
-    const loadSubscribedMarkets = async () => {
-      try {
-        const selectedTokens = await marketSearchService.getSelectedTokens()
-        // Convert selected tokens to Market format
-        const markets: Market[] = Object.values(selectedTokens).map((token: any) => ({
-          id: token.marketId,
-          title: token.marketTitle,
-          category: 'General',
-          volume: 0,
-          platform: token.marketId.startsWith('poly_') ? 'polymarket' : 'kalshi'
-        }))
-        setSubscribedMarkets(markets)
-      } catch (error) {
-        console.error('Error loading subscribed markets:', error)
-      }
-    }
-    
-    loadSubscribedMarkets()
-  }, [])
+  // Convert Redux subscriptions to Market format
+  const subscribedMarkets: Market[] = Object.values(subscriptions)
+    .filter(sub => sub.status === 'connected' || sub.status === 'receiving_data' || sub.status === 'websocket_connected')
+    .map(sub => ({
+      id: sub.original_market_id,
+      title: sub.market_title,
+      category: 'General',
+      volume: 0,
+      platform: sub.platform as "polymarket" | "kalshi"
+    }))
 
   const getConnectionIcon = (marketId: string) => {
     const state = subscriptions[marketId]
@@ -62,20 +49,12 @@ export function SubscribedMarkets() {
   
   const unsubscribeFromMarket = async (marketId: string) => {
     try {
-      // Remove from local storage
-      const selectedTokens = await marketSearchService.getSelectedTokens()
-      const updatedTokens = Object.fromEntries(
-        Object.entries(selectedTokens).filter(([_, token]: [string, any]) => token.marketId !== marketId)
-      )
+      console.log('🔍 Unsubscribing from market:', marketId)
       
-      // Update the cache with filtered tokens
-      const cache = await marketSearchService.getMarketCache()
-      cache.selectedTokens = updatedTokens
+      // TODO: Implement unsubscribe API call to backend
+      // For now, just remove from Redux state (handled by action creators)
       
-      // Update local state
-      setSubscribedMarkets(prev => prev.filter(market => market.id !== marketId))
-      
-      console.log(`Unsubscribed from market: ${marketId}`)
+      console.log(`✅ Unsubscribed from market: ${marketId}`)
     } catch (error) {
       console.error('Error unsubscribing from market:', error)
     }

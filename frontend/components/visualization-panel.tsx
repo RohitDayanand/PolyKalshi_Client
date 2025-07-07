@@ -1,7 +1,8 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { marketSearchService } from "@/lib/search-service"
+import { useState, useMemo } from "react"
+import { useAppSelector } from "@/lib/store/hooks"
+import { selectSubscriptions } from "@/lib/store/apiSubscriptionSlice"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -15,34 +16,19 @@ import type { Market } from "@/types/market"
 import { AdaptiveChart } from "./AdaptiveChart/fullscreen/AdaptiveChart"
 
 export function VisualizationPanel() {
-  const [subscribedMarkets, setSubscribedMarkets] = useState<Market[]>([])
   const [timeframe, setTimeframe] = useState("24h")
   
-  // Load subscribed markets from marketSearchService
-  useEffect(() => {
-    const loadSubscribedMarkets = async () => {
-      try {
-        const selectedTokens = await marketSearchService.getSelectedTokens()
-        // Convert selected tokens to Market format
-        const markets: Market[] = Object.values(selectedTokens).map((token: any) => ({
-          id: token.marketId,
-          title: token.marketTitle,
-          category: 'General',
-          volume: 0,
-          platform: token.marketId.startsWith('poly_') ? 'polymarket' : 'kalshi'
-        }))
-        setSubscribedMarkets(markets)
-      } catch (error) {
-        console.error('Error loading subscribed markets:', error)
-      }
-    }
-    
-    loadSubscribedMarkets()
-    
-    // Optionally refresh every 30 seconds to pick up new subscriptions
-    const interval = setInterval(loadSubscribedMarkets, 30000)
-    return () => clearInterval(interval)
-  }, [])
+  // Load subscribed markets from Redux subscription state
+  const subscriptions = useAppSelector(selectSubscriptions)
+  const subscribedMarkets = useMemo(() => {
+    return Object.entries(subscriptions).map(([frontendId, subscription]) => ({
+      id: frontendId,                    // Use Record key as market ID
+      title: subscription.market_title,
+      platform: subscription.platform as "polymarket" | "kalshi",
+      category: 'General',
+      volume: 0
+    }))
+  }, [subscriptions])
   
   // Individual market selections
   const [market1, setMarket1] = useState<Market | null>(null)

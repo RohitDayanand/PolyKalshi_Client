@@ -24,17 +24,28 @@ export interface TickerData {
   platform: Platform
   summary_stats: {
     yes?: { bid: number; ask: number; volume: number }
-    no?: { bid: number; ask: number; volume: number }
+    no?: { bid: number; ask: number; volume: number },
+    candlestick?: {
+      yes_open: number,
+      no_open: number,
+      yes_close: number,
+      no_close: number,
+      yes_high: number,
+      no_high: number,
+      yes_low: number,
+      no_low: number,
+      time: number
+    }
   }
   timestamp: number
 }
 
 export interface OHLC {
-  time: number,
-  open: number,
-  high: number,
-  low: number,
-  close: number
+  time: number | null,
+  open: number | null,
+  high: number | null,
+  low: number | null,
+  close: number | null,
 
 }
 

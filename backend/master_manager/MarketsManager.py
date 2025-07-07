@@ -42,14 +42,13 @@ from .polymarket_client.polymarket_client import PolymarketClient, PolymarketCli
 from .kalshi_client.kalshi_client import KalshiClient
 from .kalshi_client.kalshi_client_config import KalshiClientConfig
 from .kalshi_client.kalshi_environment import Environment
-from .ticker_processor import KalshiJsonFormatter, PolyJsonFormatter
 from .deprecated.message_processor import MessageProcessor
 from .kalshi_client.kalshi_queue import KalshiQueue
-from .kalshi_client.kalshi_message_processor import KalshiMessageProcessor
+from .kalshi_client.message_processor import KalshiMessageProcessor
 from .polymarket_client.polymarket_queue import PolymarketQueue
 from .polymarket_client.polymarket_message_processor import PolymarketMessageProcessor
 from .polymarket_client.polymarket_ticker_publisher import PolymarketTickerPublisher
-from .kalshi_ticker_publisher import KalshiTickerPublisher
+from .kalshi_client.kalshi_ticker_publisher import KalshiTickerPublisher
 from .utils.tglobal_config import PUBLISH_INTERVAL_SECONDS
 
 # Configure logging
@@ -80,11 +79,23 @@ class MarketsManager:
         # Initialize Polymarket message processor
         self.polymarket_processor = PolymarketMessageProcessor()
         
+        # Initialize Kalshi candlestick manager
+        from .kalshi_client.candlestick_manager import CandlestickManager
+        self.kalshi_candlestick_manager = CandlestickManager()
+        
         # Initialize Kalshi ticker publisher (1-second intervals)
         self.kalshi_ticker_publisher = KalshiTickerPublisher(
             kalshi_processor=self.kalshi_processor,
+            candlestick_manager=self.kalshi_candlestick_manager,
             publish_interval=PUBLISH_INTERVAL_SECONDS
         )
+        
+        # Set up candlestick emission callback to force publish completed candles
+        async def emit_completed_candlestick(sid: int, candlestick):
+            """Emit completed candlestick immediately via ticker publisher"""
+            self.kalshi_ticker_publisher.force_publish_market(sid)
+        
+        self.kalshi_candlestick_manager.set_candlestick_emit_callback(emit_completed_candlestick)
         
         # Initialize Polymarket ticker publisher (1-second intervals)
         self.polymarket_ticker_publisher = PolymarketTickerPublisher(
@@ -103,17 +114,33 @@ class MarketsManager:
         self.kalshi_queue.set_message_handler(self.kalshi_processor.handle_message)
         self.polymarket_queue.set_message_handler(self.polymarket_processor.handle_message)
         
-        # Start queue processors and ticker publishers
-        asyncio.create_task(self.kalshi_queue.start())
-        asyncio.create_task(self.polymarket_queue.start())
-        asyncio.create_task(self.kalshi_ticker_publisher.start())
-        asyncio.create_task(self.polymarket_ticker_publisher.start())
+        # Track if async components are started
+        self._async_started = False
         
         logger.info("MarketsManager initialized with async queues, Kalshi/Polymarket message processors, and ticker publishers")
 
         self.KALSHI_CHANNEL = "orderbook_delta"
         #no polymarket channel, markets channel by default
 
+    async def start_async_components(self):
+        """Start async components that require a running event loop"""
+        if self._async_started:
+            logger.info("MarketsManager async components already started")
+            return
+        
+        try:
+            # Start queue processors and ticker publishers
+            await self.kalshi_queue.start()
+            await self.polymarket_queue.start()
+            await self.kalshi_ticker_publisher.start()
+            await self.polymarket_ticker_publisher.start()
+            
+            self._async_started = True
+            logger.info("✅ MarketsManager async components started successfully")
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to start MarketsManager async components: {e}")
+            raise
     
     async def connect(self, subscription_id: str, platform: str = "polymarket") -> bool:
         """
@@ -126,6 +153,10 @@ class MarketsManager:
         Returns:
             bool: True if connection successful
         """
+        # Ensure async components are started
+        if not self._async_started:
+            await self.start_async_components()
+            
         try:
             if platform.lower() == "polymarket":
                 return await self._connect_polymarket(subscription_id)
@@ -156,6 +187,8 @@ class MarketsManager:
         if isinstance(subscription_id, str):
             if ',' in subscription_id:
                 token_ids = subscription_id.split(',')
+                #also remove the polymarket tag
+                token_ids[0] = token_ids[0].removeprefix('polymarket_')
             else:
                 token_ids = [subscription_id]
         else:
@@ -170,7 +203,7 @@ class MarketsManager:
             slug="default-polymarket-subscription",
             ping_interval=30,
             log_level="INFO",
-            token_id=token_ids,
+            token_ids=token_ids,
             debug_websocket_logging=debug_logging,
             debug_log_file="/home/rohit/Websocket_Polymarket_Kalshi/polymarket_debug.txt"
         )
@@ -180,7 +213,7 @@ class MarketsManager:
         # Set up message forwarding with platform tagging
         message_count = 0
         last_reset_time = time.time()
-        rate_limit = 10  # Default rate limit
+        rate_limit = 1_000_000 #1 million messages/sec rate limit
         
         async def message_forwarder(raw_message, metadata):
             nonlocal message_count, last_reset_time
@@ -270,7 +303,8 @@ class MarketsManager:
             # Set up message forwarding with platform tagging
             message_count = 0
             last_reset_time = time.time()
-            rate_limit = 15  # Default rate limit
+            rate_limit = 1_000_000  # 1,000,000 rate limit - should never be hit, and is likely way 
+            #above what our system can handle (we will crash before this)
             
             async def message_forwarder(raw_message, metadata):
                 nonlocal message_count, last_reset_time
@@ -289,9 +323,6 @@ class MarketsManager:
                 enhanced_metadata = {
                     **metadata,
                     "platform": "kalshi",
-                    "subscription_id": subscription_id,
-                    "timestamp": datetime.now().isoformat(),
-                    "rate_limit": rate_limit,
                     "channels": self.KALSHI_CHANNEL
                 }
                 

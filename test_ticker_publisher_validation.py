@@ -13,7 +13,7 @@ import os
 # Add the backend path for imports
 sys.path.append('/home/rohit/Websocket_Polymarket_Kalshi/backend')
 
-from backend.master_manager.kalshi_client.kalshi_message_processor import KalshiMessageProcessor
+from backend.master_manager.kalshi_client.message_processor import KalshiMessageProcessor
 from backend.master_manager.kalshi_ticker_publisher import KalshiTickerPublisher
 
 # Configure logging to see validation details

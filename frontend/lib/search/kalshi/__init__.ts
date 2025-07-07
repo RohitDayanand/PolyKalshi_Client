@@ -1,0 +1,1 @@
+export { KalshiSearchService } from './kalshi-search'

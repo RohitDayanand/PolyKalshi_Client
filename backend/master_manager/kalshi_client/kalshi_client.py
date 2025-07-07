@@ -16,7 +16,7 @@ from logging.handlers import MemoryHandler
 logger = logging.getLogger(__name__)
 
 # Add a constant to toggle detailed logging
-LOG_ALL_MESSAGES = True
+LOG_ALL_MESSAGES = False
 
 # In-memory log storage for all log levels
 LOG_MEMORY_CAPACITY = 10000  # Adjust as needed
@@ -68,6 +68,13 @@ class KalshiClient:
         self.on_message_callback: Optional[Callable[[str, Dict], None]] = None
         self.on_connection_callback: Optional[Callable[[bool], None]] = None
         self.on_error_callback: Optional[Callable[[Exception], None]] = None
+        
+        # Pre-compute metadata template for performance
+        self._metadata_template = {
+            "ticker": self.ticker,
+            "channel": self.channel,
+            "subscription_id": f"{self.ticker}_{self.channel}"
+        }
 
     def set_message_callback(self, callback: Callable[[str, Dict], None]) -> None:
         self.on_message_callback = callback
@@ -116,37 +123,14 @@ class KalshiClient:
     async def _handle_websocket_message(self, message: str) -> None:
         try:
             self.last_message_time = datetime.now()
-            if LOG_ALL_MESSAGES:
-                logger.debug(f"[handle_websocket_message] Raw message: {message}")
             
-            # Handle simple PONG responses without JSON parsing
-            if message == "PONG":
-                logger.debug("[handle_websocket_message] Received PONG response")
-                return
-            
-            # Handle ping/pong protocol messages that need immediate response
-            try:
-                data = json.loads(message)
-                if data.get('type') == 'ping':
-                    pong_message = {"type": "pong"}
-                    await self.websocket.send(json.dumps(pong_message))
-                    logger.debug("[handle_websocket_message] Sent PONG in response to ping")
-                    return
-            except json.JSONDecodeError:
-                # Not JSON, will be handled by queue processor
-                pass
-            
-            # Send raw message to queue without decoding
+            # Send raw message directly to queue - no JSON parsing or ping/pong handling
+            # (websockets library handles ping/pong automatically)
             if self.on_message_callback:
-                logger.debug("[handle_websocket_message] Forwarding raw message to queue")
-                metadata = {
-                    "ticker": self.ticker,
-                    "channel": self.channel,
-                    "subscription_id": f"{self.ticker}_{self.channel}",
-                    "timestamp": self.last_message_time.isoformat()
-                }
-                # Pass raw message string, not decoded JSON
-                await self.on_message_callback(message, metadata)
+                # Use pre-computed metadata template, only add timestamp
+                metadata = {**self._metadata_template, "timestamp": self.last_message_time.isoformat()}
+                # Fire-and-forget to prevent WebSocket handler from blocking
+                asyncio.create_task(self.on_message_callback(message, metadata))
                 
         except Exception as e:
             logger.error(f"[handle_websocket_message] Error processing message: {e}")
@@ -170,7 +154,6 @@ class KalshiClient:
         logger.debug("[_websocket_handler] Entered WebSocket handler loop")
         try:
             async for message in self.websocket:
-                logger.debug(f"[_websocket_handler] Received message: {message}")
                 await self._handle_websocket_message(message)
         except websockets.ConnectionClosed as e:
             logger.warning(f"WebSocket connection closed: {e.code} {e.reason}")

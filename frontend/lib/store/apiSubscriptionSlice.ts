@@ -30,6 +30,9 @@ interface SubscriptionState {
   platform: string
   status: string
   subscribed_at: number
+  // Add essential display data
+  market_title: string
+  original_market_id: string
 }
 
 interface ApiSubscriptionState {
@@ -58,7 +61,7 @@ export const callSubscriptionAPI = createAsyncThunk(
     // For Polymarket: pass full tokenIds array as JSON string for proper pair handling
     // For Kalshi: pass single ticker identifier
     const marketIdentifier = platform === "polymarket" 
-      ? JSON.stringify(market.tokenIds || [market.id])  // Full token array as JSON
+      ? JSON.stringify(market.tokenIds)  // Full token array as JSON
       : (market.kalshiTicker || market.id)              // Single ticker for Kalshi
     
     console.log('🔍 Market Identifier Extraction:', { 
@@ -190,7 +193,9 @@ export const apiSubscriptionSlice = createSlice({
           backend_market_id: apiResponse.market_id,
           platform,
           status: apiResponse.status,
-          subscribed_at: Date.now()
+          subscribed_at: Date.now(),
+          market_title: market.title,
+          original_market_id: market.id
         }
         
         // Add to pending WebSocket subscriptions

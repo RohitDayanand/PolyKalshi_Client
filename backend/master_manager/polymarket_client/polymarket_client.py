@@ -38,10 +38,10 @@ class PolymarketClientConfig:
         self,
         slug: str,
         ws_url: str = "wss://ws-subscriptions-clob.polymarket.com/ws/market",
-        ping_interval: int = 30,
+        ping_interval: int = 10,
         reconnect_interval: int = 5,
         log_level: str = "INFO",
-        token_id: List[str] = [""],
+        token_ids: List[str] = [""],
         debug_websocket_logging: bool = False,
         debug_log_file: str = "polymarket_debug.txt"
     ):
@@ -50,7 +50,7 @@ class PolymarketClientConfig:
         self.ping_interval = ping_interval
         self.reconnect_interval = reconnect_interval
         self.log_level = log_level
-        self.token_id = token_id
+        self.token_id = token_ids
         self.debug_websocket_logging = debug_websocket_logging
         self.debug_log_file = debug_log_file
 
@@ -131,10 +131,22 @@ class PolymarketClient:
         }
         try:
             message_json = json.dumps(subscribe_message)
+            
             self._log_debug("OUT", f"SUBSCRIPTION: {message_json}")
+
+            outcome_id_map = {self.token_id[0]: "YES"}
+
+            #in case it isn't binary
+            if len(self.token_id) > 1:
+                outcome_id_map[self.token_id[1]] = "NO"
+
+            #tell the upstream queue what the yes/no market looks like - avoid race conditions
+            await self.on_message_callback(json.dumps(outcome_id_map), {"event_type": "token_map"})
+
             await self.websocket.send(message_json)
             logger.info(f"Subscribed to {len(self.token_id)} assets: {self.token_id}")
             self._log_debug("INFO", f"Subscribed to {len(self.token_id)} assets: {self.token_id}")
+
             return True
         except Exception as e:
             logger.error(f"Failed to send subscription message: {e}")
@@ -142,64 +154,19 @@ class PolymarketClient:
             await self.websocket.close()
             return False
 
-    async def send_ping(self):
-        while self.should_reconnect:
-            if self.is_connected and self.websocket:
-                try:
-                    ping_message = json.dumps({"type": "ping"})
-                    self._log_debug("OUT", f"PING: {ping_message}")
-                    await self.websocket.send(ping_message)
-                    logger.debug("Sent ping message")
-                except Exception as e:
-                    logger.error(f"Failed to send ping: {e}")
-                    self._log_debug("ERROR", f"Failed to send ping: {e}")
-                    self.is_connected = False
-            await asyncio.sleep(self.ping_interval)
-
     async def handle_messages(self):
         try:
             async for message in self.websocket:
                 logger.debug(f"Received WebSocket message: {message}")
                 self._log_debug("IN", f"RAW_MESSAGE: {message}")
                 
-                # Handle simple PONG responses without JSON parsing
-                if message == "PONG":
-                    self.last_pong = datetime.now()
-                    logger.debug("Received PONG response")
-                    self._log_debug("IN", "PONG: Simple PONG received")
-                    continue
-                
-                # Handle PONG in JSON format
-                try:
-                    data = json.loads(message)
-                    if isinstance(data, dict) and data.get('type') == 'PONG':
-                        self.last_pong = datetime.now()
-                        self._log_debug("IN", "PONG: JSON PONG received")
-                        continue
-                    elif isinstance(data, list):
-                        # Check if any message in array is PONG
-                        has_pong = any(msg.get('type') == 'PONG' for msg in data if isinstance(msg, dict))
-                        if has_pong:
-                            self.last_pong = datetime.now()
-                            self._log_debug("IN", "PONG: Array contains PONG")
-                        else:
-                            self._log_debug("IN", f"MARKET_DATA_ARRAY: {len(data)} messages")
-                    else:
-                        self._log_debug("IN", f"MARKET_DATA_OBJECT: {data.get('type', 'unknown')} message")
-                except json.JSONDecodeError:
-                    # Not JSON, will be handled by queue processor
-                    self._log_debug("IN", "NON_JSON: Raw message (not parseable as JSON)")
-                    pass
-                
                 # Send raw message to queue without full decoding
                 if self.on_message_callback:
                     logger.debug("Forwarding raw message to queue")
                     self._log_debug("FORWARD", "Forwarding message to queue processor")
                     metadata = {
-                        "slug": self.slug,
-                        "token_id": self.token_id,
-                        "subscription_id": f"{self.slug}_market",
-                        "timestamp": datetime.now().isoformat()
+                        "token_hint": message[14:22], #at id 14, we begin the assetid. We want to try pattern matching in case we can quick index
+                        "timestamp": datetime.now()
                     }
                     # Pass raw message string, not decoded JSON
                     await self.on_message_callback(message, metadata)
@@ -237,7 +204,7 @@ class PolymarketClient:
             try:
                 logger.info(f"Connecting to WebSocket URL: {self.ws_url}")
                 self._log_debug("CONNECT", f"Attempting connection to {self.ws_url}")
-                async with websockets.connect(self.ws_url, ping_interval=None) as websocket:
+                async with websockets.connect(self.ws_url, ping_interval=10) as websocket:
                     self.websocket = websocket
                     self.is_connected = True
                     self.last_pong = datetime.now()
@@ -252,7 +219,6 @@ class PolymarketClient:
                     # Start ping and message handler concurrently
                     self._log_debug("CONNECT", "Starting ping sender and message handler")
                     await asyncio.gather(
-                        self.send_ping(),
                         self.handle_messages()
                     )
             except Exception as e:
@@ -297,7 +263,8 @@ class PolymarketClient:
 def create_polymarket_client(
     slug: str,
     ping_interval: int = 30,
-    log_level: str = "INFO"
+    log_level: str = "INFO",
+    token_ids: list[str] = [""]
 ) -> PolymarketClient:
     """
     Create a Polymarket client with default configuration.
@@ -313,6 +280,8 @@ def create_polymarket_client(
     config = PolymarketClientConfig(
         slug=slug,
         ping_interval=ping_interval,
-        log_level=log_level
+        log_level=log_level,
+        token_ids=token_ids
+
     )
     return PolymarketClient(config)
