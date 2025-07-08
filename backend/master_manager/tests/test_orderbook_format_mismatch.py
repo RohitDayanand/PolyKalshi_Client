@@ -17,7 +17,7 @@ import os
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from ..kalshi_client.kalshi_message_processor import KalshiMessageProcessor
+from ..kalshi_client.message_processor import KalshiMessageProcessor
 
 async def test_format_mismatch():
     """Test the format mismatch between expected Kalshi and provided Polymarket data."""

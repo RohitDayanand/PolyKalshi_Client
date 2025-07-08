@@ -8,7 +8,7 @@ Includes verbose logging, real-time monitoring, and WebSocket server for client 
 Usage:
     python real_market_initializer.py
 
-Markets exm:
+Markets:
     - Polymarket Token IDs: 75505728818237076147318796536066812362152358606307154083407489467059230821371, 67369669271127885658944531351746308398542291270457462650056001798232262328240
     - Kalshi Market: KXUSAIRANAGREEMENT-26
 

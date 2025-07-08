@@ -3,14 +3,9 @@ from typing import Optional
 from config.paths import KALSHI_KEY_PATH
 from .kalshi_environment import Environment
 from cryptography.hazmat.primitives import serialization
-from pathlib import Path
 import logging
 
 logger = logging.getLogger(__name__)
-current_dir = Path(__file__).parent
-
-#New kalshi key file path for exporting
-KALSHI_ID_PATH = current_dir.parent.parent.parent.parent / "keys" / "kalshi_key_file.txt"
 
 class KalshiClientConfig:
     """Configuration class for Kalshi client."""
@@ -28,13 +23,17 @@ class KalshiClientConfig:
         self.ticker = ticker
         self.channel = channel
         self.key_id = key_id or os.getenv('PROD_KEYID')
-        self.private_key_path = KALSHI_ID_PATH
+        self.private_key_path = KALSHI_KEY_PATH
         self.environment = environment
         self.ping_interval = ping_interval
         self.reconnect_interval = reconnect_interval
         self.log_level = log_level
         self.private_key = self._load_private_key()
-        
+
+    def _get_default_key_path(self) -> str:
+        import os
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        return os.path.join(script_dir, '..', 'kalshi-starter-code-python', 'kalshi_key_file.txt')
 
     def _load_private_key(self):
         try:

@@ -45,7 +45,7 @@ from .kalshi_client.kalshi_environment import Environment
 from .ticker_processor import KalshiJsonFormatter, PolyJsonFormatter
 from .deprecated.message_processor import MessageProcessor
 from .kalshi_client.kalshi_queue import KalshiQueue
-from .kalshi_client.kalshi_message_processor import KalshiMessageProcessor
+from .kalshi_client.message_processor import KalshiMessageProcessor
 from .polymarket_client.polymarket_queue import PolymarketQueue
 from .polymarket_client.polymarket_message_processor import PolymarketMessageProcessor
 from .polymarket_client.polymarket_ticker_publisher import PolymarketTickerPublisher
