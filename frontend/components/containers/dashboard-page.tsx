@@ -2,11 +2,11 @@
 
 import { useState } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { MarketList } from "@/components/market-list"
-import { VisualizationPanel } from "@/components/visualization-panel"
-import { SubscribedMarkets } from "@/components/subscribed-markets"
-import { CacheDebugPanel } from "@/components/cache-debug-panel"
-import { QuickKalshiSubscribe } from "@/components/quick-kalshi-subscribe"
+import { MarketList } from "@/components/containers/market-list"
+import { VisualizationPanel } from "@/components/containers/visualization-panel"
+import { SubscribedMarkets } from "@/components/containers/subscribed-markets"
+import { CacheDebugPanel } from "@/components/containers/cache-debug-panel"
+import { QuickKalshiSubscribe } from "@/components/containers/quick-kalshi-subscribe"
 
 export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState("polymarket")

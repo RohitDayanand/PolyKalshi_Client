@@ -83,10 +83,6 @@ class PolymarketClient:
         if self.debug_websocket_logging:
             self._setup_debug_logger()
         
-        logger.debug(f"PolymarketClient initialized with slug={self.slug}, token_id={self.token_id}, debug_logging={self.debug_websocket_logging}")
-        
-        if self.debug_websocket_logging:
-            self._log_debug("INIT", f"PolymarketClient initialized - slug={self.slug}, tokens={len(self.token_id)}, ws_url={self.ws_url}")
 
     def set_message_callback(self, callback: Callable[[str, Dict], None]) -> None:
         self.on_message_callback = callback
@@ -99,14 +95,6 @@ class PolymarketClient:
 
     def _setup_debug_logger(self):
         """Set up dedicated debug logger for WebSocket messages."""
-        # Clear any existing content in debug file
-        with open(self.debug_log_file, 'w') as f:
-            f.write(f"=== POLYMARKET WEBSOCKET DEBUG LOG ===\n")
-            f.write(f"Start Time: {datetime.now().isoformat()}\n")
-            f.write(f"Slug: {self.slug}\n")
-            f.write(f"Token IDs: {self.token_id}\n")
-            f.write(f"WebSocket URL: {self.ws_url}\n")
-            f.write("="*50 + "\n\n")
 
     def _log_debug(self, direction: str, message: str):
         """Log debug message to file if debug logging is enabled."""
@@ -123,7 +111,6 @@ class PolymarketClient:
     async def subscribe(self):
         if not self.is_connected or not self.websocket:
             logger.error("WebSocket not connected. Cannot subscribe.")
-            self._log_debug("ERROR", "WebSocket not connected. Cannot subscribe.")
             return False
         subscribe_message = {
             "type": "MARKET",
@@ -132,7 +119,6 @@ class PolymarketClient:
         try:
             message_json = json.dumps(subscribe_message)
             
-            self._log_debug("OUT", f"SUBSCRIPTION: {message_json}")
 
             outcome_id_map = {self.token_id[0]: "YES"}
 
@@ -144,26 +130,19 @@ class PolymarketClient:
             await self.on_message_callback(json.dumps(outcome_id_map), {"event_type": "token_map"})
 
             await self.websocket.send(message_json)
-            logger.info(f"Subscribed to {len(self.token_id)} assets: {self.token_id}")
-            self._log_debug("INFO", f"Subscribed to {len(self.token_id)} assets: {self.token_id}")
+            logger.info(f"Subscribed to {len(self.token_id)} assets")
 
             return True
         except Exception as e:
             logger.error(f"Failed to send subscription message: {e}")
-            self._log_debug("ERROR", f"Failed to send subscription message: {e}")
             await self.websocket.close()
             return False
 
     async def handle_messages(self):
         try:
             async for message in self.websocket:
-                logger.debug(f"Received WebSocket message: {message}")
-                self._log_debug("IN", f"RAW_MESSAGE: {message}")
-                
                 # Send raw message to queue without full decoding
                 if self.on_message_callback:
-                    logger.debug("Forwarding raw message to queue")
-                    self._log_debug("FORWARD", "Forwarding message to queue processor")
                     metadata = {
                         "token_hint": message[14:22], #at id 14, we begin the assetid. We want to try pattern matching in case we can quick index
                         "timestamp": datetime.now()

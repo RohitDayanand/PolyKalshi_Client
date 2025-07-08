@@ -205,7 +205,7 @@ class MarketsManager:
             log_level="INFO",
             token_ids=token_ids,
             debug_websocket_logging=debug_logging,
-            debug_log_file="/home/rohit/Websocket_Polymarket_Kalshi/polymarket_debug.txt"
+            debug_log_file=None
         )
         
         client = PolymarketClient(config)

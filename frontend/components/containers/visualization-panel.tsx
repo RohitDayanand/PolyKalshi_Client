@@ -13,7 +13,7 @@ import { MarketComparison } from "@/components/charts/market-comparison"
 import { Button } from "@/components/ui/button"
 import { CheckSquare } from "lucide-react"
 import type { Market } from "@/types/market"
-import { AdaptiveChart } from "./AdaptiveChart/fullscreen/AdaptiveChart"
+import { AdaptiveChart } from "../AdaptiveChart/fullscreen/AdaptiveChart"
 
 export function VisualizationPanel() {
   const [timeframe, setTimeframe] = useState("24h")
@@ -21,13 +21,19 @@ export function VisualizationPanel() {
   // Load subscribed markets from Redux subscription state
   const subscriptions = useAppSelector(selectSubscriptions)
   const subscribedMarkets = useMemo(() => {
-    return Object.entries(subscriptions).map(([frontendId, subscription]) => ({
-      id: frontendId,                    // Use Record key as market ID
-      title: subscription.market_title,
-      platform: subscription.platform as "polymarket" | "kalshi",
-      category: 'General',
-      volume: 0
-    }))
+    return Object.entries(subscriptions).map(([, subscription]) => {
+      // Strip platform prefix from backend_market_id since it's already included
+      const backendId = (subscription as any).backend_market_id
+      const cleanId = backendId.replace(/^(polymarket_|kalshi_)/, '')
+      
+      return {
+        id: cleanId,  // Use clean ID without platform prefix
+        title: (subscription as any).market_title,
+        platform: (subscription as any).platform as "polymarket" | "kalshi",
+        category: 'General',
+        volume: 0
+      }
+    })
   }, [subscriptions])
   
   // Individual market selections

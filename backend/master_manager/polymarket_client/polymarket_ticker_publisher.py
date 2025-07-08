@@ -133,7 +133,7 @@ class PolymarketTickerPublisher:
                 return
             
             for key in ["yes", "no"]:
-                print("Checking market summary validation for polymarket market", self._is_valid_market_summary(all_summaries.get(key)))
+                pass
             
             
             # Publish the update

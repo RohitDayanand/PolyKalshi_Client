@@ -1,14 +1,7 @@
 import { Subject } from 'rxjs'
-import { DataPoint, ChannelConfig, ChannelMessage, MarketSide } from './types'
+import { DataPoint, ChannelConfig, ChannelMessage } from './types'
 import { ChannelCache } from './ChannelCache'
-
-// Kalshi API response types
-interface KalshiCandlestickResponse {
-  success: boolean
-  data?: any
-  error?: string
-  market_info: Record<string, string>
-}
+import { DefaultParserFactory, ApiResponse } from './parsers'
 
 /**
  * Handles REST API polling for historical data and updates
@@ -18,7 +11,8 @@ export class ApiPoller {
   private maxCacheSize: number
   private channelCache: ChannelCache
   private channelSubject: Subject<ChannelMessage>
-  private apiPollSize: Number 
+  private apiPollSize: Number
+  private parserFactory: DefaultParserFactory
 
   constructor(
     channelSubject: Subject<ChannelMessage>,
@@ -31,6 +25,7 @@ export class ApiPoller {
     this.channelCache = channelCache
     this.maxCacheSize = maxCacheSize
     this.apiPollSize = apiPollSize
+    this.parserFactory = new DefaultParserFactory()
   }
 
   /**
@@ -45,20 +40,22 @@ export class ApiPoller {
         range: channelConfig.range
       })
 
-      const historyUrl = this.buildApiUrl(channelConfig, 'initial')
+      const parser = this.parserFactory.createParser(channelConfig.platform)
+      const historyUrl = parser.buildApiUrl(channelConfig, 'initial')
       const response = await fetch(historyUrl)
       
       if (!response.ok) {
         throw new Error(`API request failed: ${response.status} ${response.statusText}`)
       }
 
-      const kalshiResponse: KalshiCandlestickResponse = await response.json()
+      const apiResponse: ApiResponse = await response.json()
       
-      if (!kalshiResponse.success) {
-        throw new Error(`API returned error: ${kalshiResponse.error || 'Unknown error'}`)
+      if (!apiResponse.success) {
+        throw new Error(`API returned error: ${apiResponse.error || 'Unknown error'}`)
       }
       
-      const historyData: DataPoint[] = this.processKalshiCandlesticks(kalshiResponse, channelConfig.side)
+      //parser already preset to relevant platform
+      const historyData: DataPoint[] = parser.parseHistoricalData(apiResponse, channelConfig.side)
 
       if (historyData.length > 0) {
         console.log(`✅ [API_POLL] Received ${historyData.length} historical points for ${channelKey}`)
@@ -127,21 +124,22 @@ export class ApiPoller {
   private async pollForUpdates(channelKey: string, channelConfig: ChannelConfig): Promise<void> {
     try {
       const lastDataTime = this.channelCache.getLatestTimestamp(channelConfig)
-      const historyUrl = this.buildApiUrl(channelConfig, 'update', lastDataTime)
+      const parser = this.parserFactory.createParser(channelConfig.platform)
+      const historyUrl = parser.buildApiUrl(channelConfig, 'update', lastDataTime)
       
       const response = await fetch(historyUrl)
       if (!response.ok) {
         throw new Error(`Poll request failed: ${response.status}`)
       }
       
-      const kalshiResponse: KalshiCandlestickResponse = await response.json()
+      const apiResponse: ApiResponse = await response.json()
       
-      if (!kalshiResponse.success) {
-        console.warn(`Poll API returned error: ${kalshiResponse.error || 'Unknown error'}`)
+      if (!apiResponse.success) {
+        console.warn(`Poll API returned error: ${apiResponse.error || 'Unknown error'}`)
         return // Skip this poll cycle
       }
       
-      const newData: DataPoint[] = this.processKalshiCandlesticks(kalshiResponse, channelConfig.side)
+      const newData: DataPoint[] = parser.parseHistoricalData(apiResponse, channelConfig.side)
       
       if (newData.length > 0) {
         console.log(`🔄 [POLL_UPDATE] Received ${newData.length} new points for ${channelKey}`)
@@ -160,67 +158,6 @@ export class ApiPoller {
     }
   }
 
-  /**
-   * Build API URL for fetching data from Kalshi candlesticks endpoint
-   */
-  private buildApiUrl(channelConfig: ChannelConfig, type: 'initial' | 'update', since?: number): string {
-    if (channelConfig.platform !== 'kalshi') {
-      throw new Error(`Platform ${channelConfig.platform} not supported yet. Only 'kalshi' is currently supported.`)
-    }
-
-    // @TODO merge this baseUrl
-    const baseUrl = 'http://localhost:8000/api/kalshi/candlesticks'
-    const marketStringId = `${channelConfig.marketId}&${channelConfig.side}&${channelConfig.range}`
-    
-    // Calculate time range based on range parameter
-    const { startTs, endTs } = this.calculateTimeRange(channelConfig.range, type, since)
-    
-    const params = new URLSearchParams({
-      market_string_id: marketStringId,
-      start_ts: startTs.toString(),
-      end_ts: endTs.toString()
-    })
-
-    return `${baseUrl}?${params.toString()}`
-  }
-
-  /**
-   * Calculate Unix timestamp range based on TimeRange and request type
-   * 
-   * @TODO move this to to the backend - amount of historical data recieved by clients should be universal
-   */
-  private calculateTimeRange(range: string, type: 'initial' | 'update', since?: number): { startTs: number, endTs: number } {
-    const nowTs = Math.floor(Date.now() / 1000) // Unix seconds
-    const endTs = nowTs
-    
-    let startTs: number
-    
-    if (type === 'update' && since) {
-      // For updates, use the 'since' timestamp as start
-      startTs = Math.floor(since / 1000) // Convert from milliseconds to seconds if needed
-    } else {
-      // For initial data, calculate based on range
-      switch (range) {
-        case '1H':
-          startTs = nowTs - (60 * 60 * 6) // 6 hour ago
-          break
-        case '1W':
-          startTs = nowTs - (7 * 24 * 60 * 60 * 2) // 2 week ago
-          break
-        case '1M':
-          startTs = nowTs - (30 * 24 * 60 * 60 * 6) // 6 months ago
-          break
-        case '1Y':
-          startTs = nowTs - (365 * 24 * 60 * 60) // 365 days ago
-          break
-        default:
-          console.warn(`Unknown range ${range}, defaulting to 1 hour`)
-          startTs = nowTs - (60 * 60)
-      }
-    }
-    
-    return { startTs, endTs }
-  }
 
   /**
    * Emit initial data to channel subscribers
@@ -265,30 +202,6 @@ export class ApiPoller {
     console.log('✅ [API_POLLER] All polling stopped')
   }
 
-  /**
-   * Process Kalshi candlestick response into DataPoint format
-   */
-  private processKalshiCandlesticks(kalshiResponse: KalshiCandlestickResponse, side: MarketSide): DataPoint[] {
-    if (!kalshiResponse.data || !kalshiResponse.data.candlesticks) {
-      console.warn('No candlesticks data in Kalshi response')
-      return []
-    }
-    
-    const candlesticks = kalshiResponse.data.candlesticks
-    
-    return candlesticks.map((candle: any) => ({
-      time: candle.time, // Convert Unix seconds to milliseconds
-      value: candle[`${side}_price`],
-      volume: candle.volume,
-      candlestick: {time: candle.time, 
-        open: candle[`${side}_open`],
-        high: candle[`${side}_high`],
-        low: candle[`${side}_low`],
-        close: candle[`${side}_close`]
-      }
-
-    }))
-  }
 
   /**
    * Get polling statistics
