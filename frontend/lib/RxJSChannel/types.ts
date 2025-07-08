@@ -15,6 +15,7 @@ export interface DataPoint {
   time: number
   value: number
   volume?: number
+  candlestick?: OHLC
 }
 
 export interface TickerData {
@@ -23,15 +24,36 @@ export interface TickerData {
   platform: Platform
   summary_stats: {
     yes?: { bid: number; ask: number; volume: number }
-    no?: { bid: number; ask: number; volume: number }
+    no?: { bid: number; ask: number; volume: number },
+    candlestick?: {
+      yes_open: number,
+      no_open: number,
+      yes_close: number,
+      no_close: number,
+      yes_high: number,
+      no_high: number,
+      yes_low: number,
+      no_low: number,
+      time: number
+    }
   }
   timestamp: number
+}
+
+export interface OHLC {
+  time: number | null,
+  open: number | null,
+  high: number | null,
+  low: number | null,
+  close: number | null,
+
 }
 
 export interface ChannelMessage {
   channel: string
   updateType: UpdateType
   data: DataPoint | DataPoint[]
+  candlestick?: OHLC | OHLC[]
 }
 
 /*

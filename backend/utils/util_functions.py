@@ -1,5 +1,6 @@
 
 from enum import Enum
+from pydantic import BaseModel
 
 class OHLC(str, Enum):
     OPEN = "open"
@@ -24,3 +25,29 @@ def quote_midprice(yes_bid: dict, yes_ask: dict, selected_ohlc: str, isNo: bool 
         return round(((1 - bid_close) + (1 - ask_close)) / 2, 2)
 
     return round((bid_close + ask_close) / 2, 2)
+
+class ValidRanges(str, Enum):
+    MINUTE = "1H"
+    HOUR = "1W" 
+    DAY = "1M"
+    WEEK = "1Y"
+
+    @classmethod
+    def _missing_(cls, value):
+        if isinstance(value, str):
+            for member in cls:
+                if member.value.lower() == value.lower():
+                    return member
+        return None
+    
+class ValidViews(str, Enum):
+    YES = "yes"
+    NO = "no"
+
+    @classmethod
+    def _missing_(cls, value):
+        if isinstance(value, str):
+            for member in cls:
+                if member.value.lower() == value.lower():
+                    return member
+        return None

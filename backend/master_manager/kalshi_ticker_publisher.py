@@ -20,13 +20,13 @@ try:
 except ImportError:
     # Fallback for development/testing - mock the functions
     def publish_kalshi_update_nowait(market_id: str, summary_stats: Dict[str, Any]):
-        print(f"[MOCK] Publishing Kalshi update for {market_id}: {summary_stats}")
+        pass
     
     async def start_ticker_publisher():
-        print("[MOCK] Starting ticker publisher")
+        pass
     
     async def stop_ticker_publisher():
-        print("[MOCK] Stopping ticker publisher")
+        pass
 
 logger = logging.getLogger(__name__)
 

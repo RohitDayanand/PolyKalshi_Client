@@ -1,6 +1,7 @@
 import { LineSeries as LightweightLineSeries, ISeriesApi, LineData, Time } from 'lightweight-charts'
 import SeriesClass from './BaseClass'
 import { SeriesClassConstructorOptions, MarketDataUpdate, MarketDataPoint } from '../../../lib/ChartStuff/chart-types'
+import { parseSubscriptionId } from '../utils/parseSubscriptionId'
 
 /**
  * BOLLINGER BANDS OVERLAY COMPONENT
@@ -60,13 +61,11 @@ export class BollingerBands extends SeriesClass {
       if (this.subscriptionId) {
         console.log(`🔗 BollingerBands - Attempting subscription with ID: ${this.subscriptionId}`)
         
-        // Parse subscription ID format: "seriesType&timeRange&marketId"
-        const subscriptionParts = this.subscriptionId.split('&')
-        if (subscriptionParts.length >= 3) {
-          const [seriesTypeStr, timeRange, ...marketIdParts] = subscriptionParts
-          const marketId = marketIdParts.join('&') // Rejoin market ID parts that may contain '&'
-          const side = seriesTypeStr.toLowerCase() as 'yes' | 'no'
-          
+        // Parse subscription ID format using global util funcio
+        const checkId = parseSubscriptionId(this.subscriptionId)
+
+        if (checkId) {
+          const {marketId, side, timeRange} = checkId
           console.log(`📊 BollingerBands - Parsed subscription details:`, {
             subscriptionId: this.subscriptionId,
             marketId,

@@ -29,7 +29,7 @@ class KalshiMessageProcessor:
     Maintains separate orderbook state per market using sid.
     """
     
-    def __init__(self, start_logging: bool = True):
+    def __init__(self, start_logging: bool = False):
         self.orderbooks: Dict[int, OrderbookState] = {}  # sid -> OrderbookState
         self.error_callback: Optional[Callable[[Dict[str, Any]], None]] = None
         self.orderbook_update_callback: Optional[Callable[[int, OrderbookState], None]] = None
@@ -130,25 +130,18 @@ class KalshiMessageProcessor:
             metadata: Message metadata including ticker, channel, etc.
         """
         try:
-            # Log raw message receipt
-            logger.debug(f"📨 KALSHI MSG: Received raw message (length: {len(raw_message)})")
-            logger.debug(f"📨 KALSHI MSG: Metadata: {metadata}")
-            
             # Decode JSON
             try:
                 message_data = json.loads(raw_message)
             except json.JSONDecodeError as e:
                 logger.error(f"❌ KALSHI MSG: Failed to decode JSON: {e}")
-                logger.debug(f"Raw message: {raw_message}")
                 return
             
             # Extract message type
             message_type = message_data.get('type')
             if not message_type:
-                logger.warning(f"⚠️ KALSHI MSG: No message type found: {message_data}")
+                logger.warning(f"⚠️ KALSHI MSG: No message type found")
                 return
-            
-            logger.info(f"🔄 KALSHI MSG: Processing type '{message_type}' (sid: {message_data.get('sid', 'unknown')})")
             
             # Route to appropriate handler
             if message_type == 'error':
@@ -161,12 +154,9 @@ class KalshiMessageProcessor:
                 await self._handle_orderbook_delta(message_data, metadata)
             else:
                 logger.info(f"❓ KALSHI MSG: Unknown message type: {message_type}")
-                logger.debug(f"Message data: {message_data}")
                 
         except Exception as e:
             logger.error(f"💥 KALSHI MSG: Error processing message: {e}")
-            logger.debug(f"Raw message: {raw_message}")
-            logger.debug(f"Metadata: {metadata}")
     
     async def _handle_error_message(self, message_data: Dict[str, Any], metadata: Dict[str, Any]) -> None:
         """Handle error messages - log and propagate upward."""
@@ -284,7 +274,6 @@ class KalshiMessageProcessor:
         try:
             current_time = datetime.now()
             orderbook.apply_delta(message_data, seq, current_time)
-            logger.debug(f"Applied orderbook_delta for sid={sid}, seq={seq}")
             
             # Notify callback if set
             if self.orderbook_update_callback:
@@ -347,5 +336,5 @@ class KalshiMessageProcessor:
         return {
             'active_markets': len(self.orderbooks),
             'market_sids': list(self.orderbooks.keys()),
-            'processor_status': 'running'
-        }
+            'processor_status': 'running' 
+            }

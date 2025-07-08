@@ -367,6 +367,9 @@ export class RxJSChannelManager {
     return sharedObservable
   }
 
+  /*
+  * Gets historical price
+  */
   private getHydratedObservable(channelKey: string): Observable<ChannelMessage> {
     const channelConfig = this.channels.get(channelKey)
     if (!channelConfig) {

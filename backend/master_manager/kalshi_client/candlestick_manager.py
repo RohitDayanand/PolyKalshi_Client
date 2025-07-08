@@ -68,7 +68,7 @@ class CandlestickManager:
                 await self._check_and_emit_previous_candlesticks(sid, minute_timestamp)
                 
                 # Create new candlestick for this minute
-                candlestick = CandlestickState()
+                candlestick = CandlestickState(timestamp_minute=minute_timestamp)
                 candlestick.create(orderbook, current_time)
                 self.candlesticks[candle_key] = candlestick
                 

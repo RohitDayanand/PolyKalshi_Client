@@ -39,6 +39,7 @@ export const useMarketSubscription = () => {
     
     try {
       // Step 1: Call backend API to establish market connection
+      //what does unwrap do
       const result = await dispatch(callSubscriptionAPI({ platform, market })).unwrap()
       
       console.log('🔍 API Response:', result.apiResponse)

@@ -24,6 +24,10 @@ from backend.master_manager.kalshi_client.kalshi_candlestick_processor import (
     map_time_range_to_period_interval
 )
 
+from backend.master_manager.polymarket_client.polymarket_timeseries_processor import (
+    fetch_polymarket_timeseries, parse_polymarket_market_string
+)
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -124,14 +128,8 @@ class TickerStreamManager:
     
     def subscribe_to_market(self, websocket: WebSocket, market_id: str):
         """Subscribe WebSocket to specific market updates"""
-        logger.info(f"🎯 STREAM MANAGER: Subscribing websocket to market: {market_id}")
-        logger.info(f"📊 STREAM MANAGER: WebSocket is in connections: {websocket in self.channel_manager.connections}")
-        logger.info(f"📊 STREAM MANAGER: Total connections before subscription: {len(self.channel_manager.connections)}")
         subscription = create_market_subscription(market_id)
-        logger.info(f"🔧 STREAM MANAGER: Created subscription filter: {subscription}")
         self.channel_manager.subscribe(websocket, subscription)
-        logger.info(f"✅ STREAM MANAGER: Market subscription completed for: {market_id}")
-        logger.info(f"📊 STREAM MANAGER: Total active subscriptions after: {self.channel_manager.stats['active_subscriptions']}")
     
     def subscribe_to_platform(self, websocket: WebSocket, platform: str):
         """Subscribe WebSocket to specific platform updates"""
@@ -163,24 +161,38 @@ class TickerStreamManager:
 stream_manager = TickerStreamManager()
 
 # Utility functions for market subscription API
-def validate_market_request(platform: str, market_identifier: str) -> None:
+def validate_market_request(platform: str, market_identifier: str, token_ids: any = "") -> None:
     """Validate market subscription request parameters"""
+
     if platform not in ["polymarket", "kalshi"]:
         raise ValueError(f"Unsupported platform: {platform}. Must be 'polymarket' or 'kalshi'")
     
     if platform == "polymarket":
         # Validate Polymarket token ID format (long numeric string, typically 77+ digits)
-        if not market_identifier.isdigit() or len(market_identifier) < 70:
-            raise ValueError("Invalid Polymarket token ID format. Must be a long numeric string (70+ digits)")
-    
+        #attempt parsing the actual market_identifier 
+
+        #we assume that this is correct because frontend controls logic
+        print("no logic")
+
     elif platform == "kalshi":
         # Validate Kalshi market slug format (uppercase alphanumeric with hyphens)
         if not re.match(r'^[A-Z0-9\-]+$', market_identifier):
             raise ValueError("Invalid Kalshi market slug format. Must be uppercase alphanumeric with hyphens")
 
-def generate_market_id(platform: str, identifier: str) -> str:
+def generate_market_id(platform: str, identifier: str, token_ids: any = "") -> str:
     """Generate standardized market_id for WebSocket subscriptions"""
-    return f"{platform}_{identifier}"
+    if platform == 'polymarket':
+        #check whet
+        try: 
+            token_string = ",".join(token_ids)
+            return f"{platform}_{token_string}"
+        except json.JSONDecodeError as e:
+            print("Error detected - not jsonable. Check closely what the python server recieves")
+            
+    elif platform == 'kalshi':
+        return f"{platform}_{identifier}"
+    else:
+        return "ID_GENERATION_FAILED"
 
 def parse_market_string_id(market_string_id: str) -> Dict[str, str]:
     """Parse marketStringId format: ticker&side&range"""
@@ -224,13 +236,12 @@ async def initialize_markets_manager():
         logger.error(f"Failed to initialize MarketsManager: {e}")
         return False
 
-async def handle_market_connection(platform: str, market_identifier: str) -> Dict[str, any]:
+async def handle_market_connection(platform: str, market_id: str) -> Dict[str, any]:
     """
     Handle market connection via MarketsManager
     
     Returns connection result with status and details
     """
-    market_id = generate_market_id(platform, market_identifier)
     
     try:
         # Set initial state
@@ -238,7 +249,7 @@ async def handle_market_connection(platform: str, market_identifier: str) -> Dic
             market_id=market_id,
             status="connecting", 
             platform=platform,
-            identifier=market_identifier,
+            identifier=market_id,
             message="Establishing connection to market data feed"
         )
         
@@ -249,15 +260,15 @@ async def handle_market_connection(platform: str, market_identifier: str) -> Dic
             success = False
         else:
             # Call MarketsManager.connect() with proper parameters
-            logger.info(f"Connecting to {platform} market via MarketsManager: {market_identifier}")
-            success = await markets_manager.connect(market_identifier, platform)
+            logger.info(f"Connecting to {platform} market via MarketsManager: {market_id}")
+            success = await markets_manager.connect(market_id, platform)
             
             if success:
                 connection_state_manager.update_status(market_id, "connected", "Connection established successfully")
-                logger.info(f"Successfully connected to {platform} market: {market_identifier}")
+                logger.info(f"Successfully connected to {platform} market: {market_id}")
             else:
                 connection_state_manager.update_status(market_id, "failed", "Failed to establish connection")
-                logger.error(f"Failed to connect to {platform} market: {market_identifier}")
+                logger.error(f"Failed to connect to {platform} market: {market_id}")
         
         return {
             "success": success,
@@ -266,7 +277,7 @@ async def handle_market_connection(platform: str, market_identifier: str) -> Dic
         }
         
     except Exception as e:
-        logger.error(f"Market connection error for {platform}:{market_identifier} - {e}")
+        logger.error(f"Market connection error for {platform}:{market_id} - {e}")
         connection_state_manager.update_status(market_id, "failed", f"Connection error: {str(e)}")
         return {
             "success": False,
@@ -301,6 +312,13 @@ async def startup_event():
     success = await initialize_markets_manager()
     if success:
         logger.info("✅ MarketsManager ready for market connections")
+        
+        # Start MarketsManager async components (queues and ticker publishers)
+        try:
+            await markets_manager.start_async_components()
+            logger.info("✅ MarketsManager ticker publishers started")
+        except Exception as e:
+            logger.error(f"❌ Failed to start MarketsManager async components: {e}")
     else:
         logger.warning("⚠️ MarketsManager not available - market connections will fail")
     
@@ -330,7 +348,6 @@ async def websocket_ticker_endpoint(websocket: WebSocket):
                     market_id = message.get('market_id')
                     platform = message.get('platform', 'unknown')
                     if market_id:
-                        logger.info(f"📡 Market subscription request: {market_id} (platform: {platform})")
                         stream_manager.subscribe_to_market(websocket, market_id)
                         await websocket.send_text(json.dumps({
                             'type': 'subscription_confirmed',
@@ -339,7 +356,6 @@ async def websocket_ticker_endpoint(websocket: WebSocket):
                             'platform': platform,
                             'timestamp': time.time()
                         }))
-                        logger.info(f"✅ Market subscription confirmed: {market_id} (platform: {platform})")
                 
                 elif message_type == 'subscribe_platform':
                     platform = message.get('platform')
@@ -355,7 +371,6 @@ async def websocket_ticker_endpoint(websocket: WebSocket):
                     market_id = message.get('market_id')
                     platform = message.get('platform', 'unknown')
                     if market_id:
-                        logger.info(f"📡 Market unsubscription request: {market_id} (platform: {platform})")
                         stream_manager.unsubscribe_from_market(websocket, market_id)
                         await websocket.send_text(json.dumps({
                             'type': 'unsubscription_confirmed',
@@ -364,7 +379,6 @@ async def websocket_ticker_endpoint(websocket: WebSocket):
                             'platform': platform,
                             'timestamp': time.time()
                         }))
-                        logger.info(f"✅ Market unsubscription confirmed: {market_id} (platform: {platform})")
                 
                 elif message_type == 'unsubscribe_platform':
                     platform = message.get('platform')
@@ -432,9 +446,6 @@ async def subscribe_to_market(request: MarketSubscriptionRequest):
     2. Send subscription message with returned market_id
     3. Start receiving real-time ticker updates
     """
-    # Log incoming request
-    logger.info(f"📥 API Request received: /api/markets/subscribe")
-    logger.info(f"📊 Request details: platform={request.platform}, market_identifier={request.market_identifier}, client_id={request.client_id}")
     
     # Log market identifier parsing for different platforms
     if request.platform == "polymarket":
@@ -452,11 +463,17 @@ async def subscribe_to_market(request: MarketSubscriptionRequest):
     try:
         # Validate request parameters
         logger.info(f"🔎 Validating request parameters...")
-        validate_market_request(request.platform, request.market_identifier)
+        #Write the raw request to a temp file that I can access later on W
+
+        validate_market_request(
+            request.platform,
+            request.market_identifier,
+            token_ids = locals().get("token_ids") or ""
+        )
         logger.info(f"✅ Request validation passed")
         
         # Generate standardized market ID
-        market_id = generate_market_id(request.platform, request.market_identifier)
+        market_id = generate_market_id(request.platform, request.market_identifier, token_ids = locals().get("token_ids") or "")
         logger.info(f"🏷️ Generated market_id: {market_id}")
         
         # Check if already connected
@@ -482,7 +499,7 @@ async def subscribe_to_market(request: MarketSubscriptionRequest):
         
         # Handle new market connection
         logger.info(f"🚀 Initiating NEW connection to {request.platform} market: {request.market_identifier}")
-        connection_result = await handle_market_connection(request.platform, request.market_identifier)
+        connection_result = await handle_market_connection(request.platform, market_id)
         logger.info(f"🔄 Connection result: {connection_result}")
         
         elapsed_time = time.time() - start_time
@@ -619,6 +636,59 @@ async def get_kalshi_candlesticks(
 #     - Polymarket: Requires subscription override (resubscribe without target market)
 #     """
 #     pass
+
+'''
+Add polymarket historical timeseries generation endpoint
+
+'''
+@app.get("/api/polymarket/timeseries")
+async def get_polymarket_timeseries( market_string_id: str = Query(..., description="Market string in format: ticker&side&range"),
+    start_ts: int = Query(..., description="Start timestamp (Unix seconds)"),
+    end_ts: int = Query(..., description="End timestamp (Unix seconds)")):
+
+    """
+    Fetch historical timeseries data from Polymarket API
+    
+    This endpoint:
+    1. Parses market_string_id to extract ticker, side, and range
+    2. Maps time range to Kalshi period intervals (1H→1m, 1W->1hr, 1M→1d)
+    3. Extracts series ticker from market ticker (split by - or _, take first part)
+    4. Calls Polymarket timeseries API with proper parameters
+    5. Processes and returns standardized timeseries data
+    
+    Example usage:
+    GET /api/kalshi/candlesticks?market_string_id=PRES24-DJT-Y&side&1H&start_ts=1750966620&end_ts=1750970220
+    """
+    start_time = time.time()
+    try:
+
+        poly_yes_no_candlesticks = await fetch_polymarket_timeseries(
+            market_string_id,
+            start_ts,
+            end_ts
+        )
+
+        return KalshiCandlestickResponse(
+            success=True,
+            data=poly_yes_no_candlesticks,
+            market_info={
+            }
+        )
+
+    except ValueError as e:
+        elapsed_time = time.time() - start_time
+        logger.warning(f"⚠️ Kalshi candlesticks validation error: {e} (took {elapsed_time:.3f}s)")
+        raise HTTPException(status_code=400, detail=str(e))
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions from helper functions
+        raise
+        
+    except Exception as e:
+        elapsed_time = time.time() - start_time
+        logger.error(f"💥 Unexpected error in Kalshi candlesticks: {e} (took {elapsed_time:.3f}s)")
+        logger.error(f"💥 Full exception details:", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error while fetching candlestick data")
 
 # Function to be called by orderbook processors
 async def publish_ticker_update(ticker_data: dict):

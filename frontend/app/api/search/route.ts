@@ -27,6 +27,8 @@ export async function GET(request: NextRequest) {
     // Include cache stats for debugging
     const cacheStats = await marketSearchService.getCacheStats()
     
+    console.log('🔍 SEARCH API: Cache stats after search:', cacheStats)
+    
     return NextResponse.json({
       success: true,
       data: results,

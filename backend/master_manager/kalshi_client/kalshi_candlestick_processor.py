@@ -62,22 +62,10 @@ async def fetch_kalshi_candlesticks(series_ticker: str, market_ticker: str, star
         data = response.json()
         candlesticks = data.get('candlesticks', [])
         
-        logger.info(f"✅ KALSHI API RESPONSE:")
-        logger.info(f"   📈 Candlesticks returned: {len(candlesticks)}")
-        logger.info(f"   📊 Response keys: {list(data.keys())}")
+        logger.info(f"Kalshi API returned {len(candlesticks)} candlesticks")
         
-        if candlesticks:
-            first_candle = candlesticks[0]
-            last_candle = candlesticks[-1]
-            first_time = datetime.fromtimestamp(first_candle.get('end_period_ts', 0))
-            last_time = datetime.fromtimestamp(last_candle.get('end_period_ts', 0))
-            
-            logger.info(f"   🕐 First candle time: {first_candle.get('end_period_ts')} ({first_time.isoformat()})")
-            logger.info(f"   🕐 Last candle time: {last_candle.get('end_period_ts')} ({last_time.isoformat()})")
-            logger.info(f"   📊 Sample candle keys: {list(first_candle.keys())}")
-        else:
-            logger.warning(f"⚠️ NO CANDLESTICKS RETURNED from Kalshi API")
-            logger.warning(f"   📊 Full response: {data}")
+        if not candlesticks:
+            logger.warning("No candlesticks returned from Kalshi API")
         
         return data
         
@@ -134,10 +122,14 @@ def process_kalshi_candlesticks(raw_data: Dict, market_info: Dict[str, str]) -> 
 
             processed_candle = {
                 "time": end_period_ts,
-                "open": quote_midprice(yes_bid, yes_ask, OHLC.OPEN),
-                "high": quote_midprice(yes_bid, yes_ask, OHLC.HIGH), 
-                "low": quote_midprice(yes_bid, yes_ask, OHLC.LOW),
-                "close": quote_midprice(yes_bid, yes_ask, OHLC.CLOSE),
+                "yes_open": quote_midprice(yes_bid, yes_ask, OHLC.OPEN),
+                "yes_high": quote_midprice(yes_bid, yes_ask, OHLC.HIGH), 
+                "yes_low": quote_midprice(yes_bid, yes_ask, OHLC.LOW),
+                "yes_close": quote_midprice(yes_bid, yes_ask, OHLC.CLOSE),
+                "no_open": quote_midprice(yes_bid, yes_ask, OHLC.OPEN, isNo=True),
+                "no_high": quote_midprice(yes_bid, yes_ask, OHLC.HIGH, isNo=True),
+                "no_low": quote_midprice(yes_bid, yes_ask, OHLC.LOW, isNo=True),
+                "no_close": quote_midprice(yes_bid, yes_ask, OHLC.CLOSE, isNo=True),
                 "volume": candle.get("volume", 0),
                 "yes_price": quote_midprice(yes_bid, yes_ask, OHLC.CLOSE),
                 "no_price": quote_midprice(yes_ask, yes_bid, OHLC.CLOSE, isNo=True),

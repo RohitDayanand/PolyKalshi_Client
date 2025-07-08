@@ -8,3 +8,17 @@ export function parseSubscriptionId(subscriptionId: string): { marketId: string,
   }
   return null
 }
+
+
+/*
+* Utility function for quick platform parsing
+*/
+export function parsePlatform(tokenId: string): Exchange {
+  if (tokenId.startsWith("polymarket_")) return "polymarket";
+  if (tokenId.startsWith("kalshi_")) return "kalshi";
+
+  throw new Error("Unknown exchange or malformed subscriptionId string")
+}
+
+
+type Exchange = "polymarket" | "kalshi"

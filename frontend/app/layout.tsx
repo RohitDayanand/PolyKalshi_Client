@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 import './globals.css'
 import { ReduxProvider } from '@/lib/providers'
-import { ThemeProvider } from '@/components/theme-provider'
+import { ThemeProvider } from '@/components/containers/theme-provider'
 
 export const metadata: Metadata = {
   title: 'Websocket Market Dashboard',

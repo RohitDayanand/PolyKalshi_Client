@@ -46,8 +46,6 @@ class PolymarketQueue:
                 "platform": "polymarket"
             }
             await self.queue.put(message_data)
-            logger.info(f"[PolymarketQueue] Enqueued message: {metadata}")
-            logger.debug(f"[PolymarketQueue] Queue size after enqueue: {self.queue.qsize()}")
         except asyncio.QueueFull:
             logger.warning("[PolymarketQueue] Queue is full, dropping message")
         except Exception as e:
@@ -64,7 +62,6 @@ class PolymarketQueue:
         while self.is_running:
             try:
                 message_data = await asyncio.wait_for(self.queue.get(), timeout=1.0)
-                logger.info(f"[PolymarketQueue] Dequeued message for processing: {message_data['metadata']}")
                 if self.message_handler:
                     asyncio.create_task(
                         self._safe_call_handler(message_data["raw_message"], message_data["metadata"])

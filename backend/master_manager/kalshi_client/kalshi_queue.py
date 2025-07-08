@@ -35,23 +35,16 @@ class KalshiQueue:
         Add a raw Kalshi message to the processing queue.
         
         Args:
-            raw_message: Raw WebSocket message string (not decoded)
+            raw_message: Raw WebSocket message string (not decoded)  
             metadata: Additional metadata like subscription_id, ticker, etc.
         """
         try:
-            message_data = {
-                "raw_message": raw_message,
-                "metadata": metadata,
-                "timestamp": datetime.now().isoformat(),
-                "platform": "kalshi"
-            }
-            await self.queue.put(message_data)
-            logger.info(f"[KalshiQueue] Enqueued message: {metadata}")
-            logger.debug(f"[KalshiQueue] Queue size after enqueue: {self.queue.qsize()}")
+            # Pass raw message and metadata directly - no wrapper dict
+            await self.queue.put((raw_message, metadata))
         except asyncio.QueueFull:
-            logger.warning("[KalshiQueue] Queue is full, dropping message")
+            logger.warning("[KalshiQueue] Queue full, dropping message")
         except Exception as e:
-            logger.error(f"[KalshiQueue] Error adding message to queue: {e}")
+            logger.error(f"[KalshiQueue] Queue error: {e}")
     
     async def _process_queue(self) -> None:
         """
@@ -59,26 +52,15 @@ class KalshiQueue:
         Continuously processes messages from the Kalshi queue.
         """
         logger.info("Kalshi queue processor started")
-        import time
-        last_stats_time = time.time()
         while self.is_running:
             try:
-                message_data = await asyncio.wait_for(self.queue.get(), timeout=1.0)
-                logger.info(f"[KalshiQueue] Dequeued message for processing: {message_data['metadata']}")
+                # Get tuple directly - no timeout needed for performance
+                raw_message, metadata = await self.queue.get()
                 if self.message_handler:
-                    asyncio.create_task(
-                        self._safe_call_handler(message_data["raw_message"], message_data["metadata"])
-                    )
+                    await self._safe_call_handler(raw_message, metadata)
                 self.queue.task_done()
-            except asyncio.TimeoutError:
-                pass
             except Exception as e:
                 logger.error(f"[KalshiQueue] Error processing message: {e}")
-            # Periodically print queue stats
-            if time.time() - last_stats_time > 5:
-                stats = self.get_stats()
-                logger.info(f"[KalshiQueue] Stats: {stats}")
-                last_stats_time = time.time()
         logger.info("Kalshi queue processor stopped")
     
     async def _safe_call_handler(self, raw_message: str, metadata: Dict[str, Any]) -> None:
