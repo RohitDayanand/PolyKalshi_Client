@@ -1,5 +1,5 @@
 [project]
-name = "PolyKalshiTradingInterface"                 # Name of your top-level package (i.e. folder name)
+name = "PolyKalshiTradingInterface"                 
 version = "0.1.0"
 description = "Please read the README and SETUP"
 authors = [

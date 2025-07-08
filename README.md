@@ -60,36 +60,36 @@ We've completely redesigned our architecture to support high-performance, real-t
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                        Kalshi WebSocket API                             │
 │                     (Real-time Market Data)                             │
-└───────────────────────────────────────┬─────────────────────────────────┘
-                                   │
-┌───────────────────────────────────────┴─────────────────────────────────┐
+└─────────────────────────────────┬───────────────────────────────────────┘
+                                  │
+┌─────────────────────────────────┴───────────────────────────────────────┐
 │                 Async Data Ingestion Layer                              │
 │       • Concurrent WebSocket Handlers                                   │
 │       • Real-time Orderbook State Construction                          │
 │       • Async Queue Processing (Redis/Memory)                           │
-└───────────────────────────────────────┬─────────────────────────────────┘
-                                   │
-┌───────────────────────────────────────┴─────────────────────────────────┐
+└─────────────────────────────────┬───────────────────────────────────────┘
+                                  │
+┌─────────────────────────────────┴───────────────────────────────────────┐
 │              PostgreSQL Persistence Layer                               │
 │       • Optimized Schema Design                                         │
-│       • JSONB Orderbook Storage                         │
-│       • Async Connection Pooling                        │
-│       • Real-time Data Streaming                        │
-└───────────────────────────────────────┬─────────────────────────────────┘
-                                   │
-┌───────────────────────────────────────┴─────────────────────────────────┐
-│                Analytics & API Backend                 │
-│       • Real-time Technical Indicators                 │
-│       • Async REST API (FastAPI/Async)                 │
-│       • WebSocket Streaming for Live Updates            │
-└───────────────────────────────────────┬─────────────────────────────────┘
-                                   │
-┌───────────────────────────────────────┴─────────────────────────────────┐
-│           Advanced Visualization Frontend            │
-│       • Interactive Candlestick Charts                 │
-│       • Real-time Trading Overlays                     │
-│       • Technical Indicators & Volume Analysis          │
-│       • Responsive React/TypeScript Interface           │
+│       • JSONB Orderbook Storage                                         │
+│       • Async Connection Pooling                                        │
+│       • Real-time Data Streaming                                        │
+└─────────────────────────────────┬───────────────────────────────────────┘
+                                  │
+┌─────────────────────────────────┴───────────────────────────────────────┐
+│                Analytics & API Backend                                  │
+│       • Real-time Technical Indicators                                  │
+│       • Async REST API (FastAPI/Async)                                  │
+│       • WebSocket Streaming for Live Updates                            │
+└─────────────────────────────────┬───────────────────────────────────────┘
+                                  │
+┌─────────────────────────────────┴───────────────────────────────────────┐
+│           Advanced Visualization Frontend                               │
+│       • Interactive Candlestick Charts                                  │
+│       • Real-time Trading Overlays                                      │
+│       • Technical Indicators & Volume Analysis                          │
+│       • Responsive React/TypeScript Interface                           │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
