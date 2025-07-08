@@ -100,7 +100,6 @@ class PolymarketMessageProcessor:
             await self._handle_last_trade_price_message(message_data, metadata)
         elif metadata.get("event_type") == "token_map":
             #merge our token maps (in case multiple subscriptions)
-            print("We sucessfuly created the token map")
             self.token_map = self.token_map | message_data
         else:
             logger.info(f"Unknown Polymarket event_type: {event_type}")

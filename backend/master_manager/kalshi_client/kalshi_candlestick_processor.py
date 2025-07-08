@@ -62,22 +62,10 @@ async def fetch_kalshi_candlesticks(series_ticker: str, market_ticker: str, star
         data = response.json()
         candlesticks = data.get('candlesticks', [])
         
-        logger.info(f"✅ KALSHI API RESPONSE:")
-        logger.info(f"   📈 Candlesticks returned: {len(candlesticks)}")
-        logger.info(f"   📊 Response keys: {list(data.keys())}")
+        logger.info(f"Kalshi API returned {len(candlesticks)} candlesticks")
         
-        if candlesticks:
-            first_candle = candlesticks[0]
-            last_candle = candlesticks[-1]
-            first_time = datetime.fromtimestamp(first_candle.get('end_period_ts', 0))
-            last_time = datetime.fromtimestamp(last_candle.get('end_period_ts', 0))
-            
-            logger.info(f"   🕐 First candle time: {first_candle.get('end_period_ts')} ({first_time.isoformat()})")
-            logger.info(f"   🕐 Last candle time: {last_candle.get('end_period_ts')} ({last_time.isoformat()})")
-            logger.info(f"   📊 Sample candle keys: {list(first_candle.keys())}")
-        else:
-            logger.warning(f"⚠️ NO CANDLESTICKS RETURNED from Kalshi API")
-            logger.warning(f"   📊 Full response: {data}")
+        if not candlesticks:
+            logger.warning("No candlesticks returned from Kalshi API")
         
         return data
         

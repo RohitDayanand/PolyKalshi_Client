@@ -105,7 +105,10 @@ export const callSubscriptionAPI = createAsyncThunk(
       throw new Error(`HTTP ${response.status}: ${response.statusText} - ${errorText}`)
     }
 
+    //what does this line do?
     const apiResponse: MarketSubscriptionResponse = await response.json()
+
+
     console.log('📥 Backend API Response:', {
       success: apiResponse.success,
       status: apiResponse.status,

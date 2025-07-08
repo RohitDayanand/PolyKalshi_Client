@@ -24,6 +24,10 @@ from backend.master_manager.kalshi_client.kalshi_candlestick_processor import (
     map_time_range_to_period_interval
 )
 
+from backend.master_manager.polymarket_client.polymarket_timeseries_processor import (
+    fetch_polymarket_timeseries, parse_polymarket_market_string
+)
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -124,14 +128,8 @@ class TickerStreamManager:
     
     def subscribe_to_market(self, websocket: WebSocket, market_id: str):
         """Subscribe WebSocket to specific market updates"""
-        logger.info(f"🎯 STREAM MANAGER: Subscribing websocket to market: {market_id}")
-        logger.info(f"📊 STREAM MANAGER: WebSocket is in connections: {websocket in self.channel_manager.connections}")
-        logger.info(f"📊 STREAM MANAGER: Total connections before subscription: {len(self.channel_manager.connections)}")
         subscription = create_market_subscription(market_id)
-        logger.info(f"🔧 STREAM MANAGER: Created subscription filter: {subscription}")
         self.channel_manager.subscribe(websocket, subscription)
-        logger.info(f"✅ STREAM MANAGER: Market subscription completed for: {market_id}")
-        logger.info(f"📊 STREAM MANAGER: Total active subscriptions after: {self.channel_manager.stats['active_subscriptions']}")
     
     def subscribe_to_platform(self, websocket: WebSocket, platform: str):
         """Subscribe WebSocket to specific platform updates"""
@@ -350,7 +348,6 @@ async def websocket_ticker_endpoint(websocket: WebSocket):
                     market_id = message.get('market_id')
                     platform = message.get('platform', 'unknown')
                     if market_id:
-                        logger.info(f"📡 Market subscription request: {market_id} (platform: {platform})")
                         stream_manager.subscribe_to_market(websocket, market_id)
                         await websocket.send_text(json.dumps({
                             'type': 'subscription_confirmed',
@@ -359,7 +356,6 @@ async def websocket_ticker_endpoint(websocket: WebSocket):
                             'platform': platform,
                             'timestamp': time.time()
                         }))
-                        logger.info(f"✅ Market subscription confirmed: {market_id} (platform: {platform})")
                 
                 elif message_type == 'subscribe_platform':
                     platform = message.get('platform')
@@ -375,7 +371,6 @@ async def websocket_ticker_endpoint(websocket: WebSocket):
                     market_id = message.get('market_id')
                     platform = message.get('platform', 'unknown')
                     if market_id:
-                        logger.info(f"📡 Market unsubscription request: {market_id} (platform: {platform})")
                         stream_manager.unsubscribe_from_market(websocket, market_id)
                         await websocket.send_text(json.dumps({
                             'type': 'unsubscription_confirmed',
@@ -384,7 +379,6 @@ async def websocket_ticker_endpoint(websocket: WebSocket):
                             'platform': platform,
                             'timestamp': time.time()
                         }))
-                        logger.info(f"✅ Market unsubscription confirmed: {market_id} (platform: {platform})")
                 
                 elif message_type == 'unsubscribe_platform':
                     platform = message.get('platform')
@@ -452,9 +446,6 @@ async def subscribe_to_market(request: MarketSubscriptionRequest):
     2. Send subscription message with returned market_id
     3. Start receiving real-time ticker updates
     """
-    # Log incoming request
-    logger.info(f"📥 API Request received: /api/markets/subscribe")
-    logger.info(f"📊 Request details: platform={request.platform}, market_identifier={request.market_identifier}, client_id={request.client_id}")
     
     # Log market identifier parsing for different platforms
     if request.platform == "polymarket":
@@ -645,6 +636,59 @@ async def get_kalshi_candlesticks(
 #     - Polymarket: Requires subscription override (resubscribe without target market)
 #     """
 #     pass
+
+'''
+Add polymarket historical timeseries generation endpoint
+
+'''
+@app.get("/api/polymarket/timeseries")
+async def get_polymarket_timeseries( market_string_id: str = Query(..., description="Market string in format: ticker&side&range"),
+    start_ts: int = Query(..., description="Start timestamp (Unix seconds)"),
+    end_ts: int = Query(..., description="End timestamp (Unix seconds)")):
+
+    """
+    Fetch historical timeseries data from Polymarket API
+    
+    This endpoint:
+    1. Parses market_string_id to extract ticker, side, and range
+    2. Maps time range to Kalshi period intervals (1H→1m, 1W->1hr, 1M→1d)
+    3. Extracts series ticker from market ticker (split by - or _, take first part)
+    4. Calls Polymarket timeseries API with proper parameters
+    5. Processes and returns standardized timeseries data
+    
+    Example usage:
+    GET /api/kalshi/candlesticks?market_string_id=PRES24-DJT-Y&side&1H&start_ts=1750966620&end_ts=1750970220
+    """
+    start_time = time.time()
+    try:
+
+        poly_yes_no_candlesticks = await fetch_polymarket_timeseries(
+            market_string_id,
+            start_ts,
+            end_ts
+        )
+
+        return KalshiCandlestickResponse(
+            success=True,
+            data=poly_yes_no_candlesticks,
+            market_info={
+            }
+        )
+
+    except ValueError as e:
+        elapsed_time = time.time() - start_time
+        logger.warning(f"⚠️ Kalshi candlesticks validation error: {e} (took {elapsed_time:.3f}s)")
+        raise HTTPException(status_code=400, detail=str(e))
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions from helper functions
+        raise
+        
+    except Exception as e:
+        elapsed_time = time.time() - start_time
+        logger.error(f"💥 Unexpected error in Kalshi candlesticks: {e} (took {elapsed_time:.3f}s)")
+        logger.error(f"💥 Full exception details:", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error while fetching candlestick data")
 
 # Function to be called by orderbook processors
 async def publish_ticker_update(ticker_data: dict):

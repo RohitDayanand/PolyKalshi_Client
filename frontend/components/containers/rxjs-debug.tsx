@@ -3,10 +3,10 @@
 import React, { useState } from 'react'
 import { useSelector, useDispatch } from 'react-redux'
 import { useRxJSChannelWithRedux } from '../lib/store/useRxJSChannelWithRedux'
-import { callSubscriptionAPI, selectSubscriptions, selectIsLoading } from '../lib/store/apiSubscriptionSlice'
-import { getRxJSStats } from '../lib/store/rxjsSubscriptionMiddleware'
-import { Card, CardHeader, CardTitle, CardContent } from './ui/card'
-import { Button } from './ui/button'
+import { callSubscriptionAPI, selectSubscriptions, selectIsLoading } from '../../lib/store/apiSubscriptionSlice'
+import { getRxJSStats } from '../../lib/store/rxjsSubscriptionMiddleware'
+import { Card, CardHeader, CardTitle, CardContent } from '../ui/card'
+import { Button } from '../ui/button'
 
 export function RxJSDebugPanel() {
   const dispatch = useDispatch()

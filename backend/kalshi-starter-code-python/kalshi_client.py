@@ -220,18 +220,12 @@ class KalshiWebSocketClient(KalshiBaseClient):
         """Handle incoming messages."""
         try:
             async for message in self.ws:
-                # Log EVERY message received from Kalshi
-                print("\n" + "="*50)
-                print(f"RECEIVED MESSAGE at {datetime.now().isoformat()}")
-                print(f"Message: {message}")
-                print("="*50 + "\n")
                 self.last_message_time = time.time()
                 try:
                     data = json.loads(message)
                     if data.get('type') == 'ping':
                         pong_message = {"type": "pong"}
                         await self.ws.send(json.dumps(pong_message))
-                        print("SENT Kalshi PONG in response to ping.")
                         self.last_pong_time = time.time()
                         continue
                 except json.JSONDecodeError:
@@ -240,12 +234,11 @@ class KalshiWebSocketClient(KalshiBaseClient):
                 await self.on_message(message)
                 time_since_last_pong = time.time() - self.last_pong_time
                 if time_since_last_pong > 10:
-                    print(f"CONNECTION DROPPED: No PONG received for {time_since_last_pong:.1f} seconds")
-                    print("Connection appears to be dead. Initiating reconnection...")
+                    logger.warning(f"CONNECTION DROPPED: No PONG received for {time_since_last_pong:.1f} seconds")
                     await self.disconnect()
                     return
         except websockets.ConnectionClosed as e:
-            print(f"Connection lost: {e.code} {e.reason}")
+            logger.error(f"Connection lost: {e.code} {e.reason}")
             self.is_connected = False
         except Exception as e:
             print(f"Handler error: {e}")

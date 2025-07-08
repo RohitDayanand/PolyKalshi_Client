@@ -29,7 +29,7 @@ class OrderbookState:
         # Process yes - Orderbooks in kalshi/polymarket work different
         for price_level in snapshot_data['msg'].get('yes', []):
             if len(price_level) < 2:
-                print("We are processing the wrong order shape - there is some empty price level and kalshi has not updated it. Line 88 in kalshi message processor")
+                logger.warning("Empty price level in Kalshi orderbook snapshot")
             else:
                 price = int(price_level[0])
                 size = int(price_level[1])
@@ -38,7 +38,7 @@ class OrderbookState:
         # Process Nos
         for price_level in snapshot_data['msg'].get('no', []):
                 if len(price_level) < 2:
-                    print("Erorr occured here")
+                    logger.warning("Empty price level in Kalshi orderbook snapshot")
                 else:
                     price = int(price_level[0])
                     size = int(price_level[1])
