@@ -7,6 +7,7 @@ import marketSubscriptionReducer from './marketSubscriptionSlice'
 import overlayReducer from './overlaySlice'
 import websocketReducer from './websocketSlice'
 import apiSubscriptionReducer from './apiSubscriptionSlice'
+import loadingBarReducer from './loadingBarSlice'
 import { websocketMiddleware, initializeWebSocket } from './websocketMiddleware'
 import { rxjsSubscriptionMiddleware } from './rxjsSubscriptionMiddleware'
 
@@ -71,7 +72,8 @@ export const store = configureStore({
     marketSubscription: marketSubscriptionReducer,
     overlay: overlayReducer,
     websocket: websocketReducer,
-    apiSubscription: apiSubscriptionReducer
+    apiSubscription: apiSubscriptionReducer,
+    loadingBar: loadingBarReducer
   },
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware().concat(websocketMiddleware, rxjsSubscriptionMiddleware),

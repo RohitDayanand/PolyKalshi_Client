@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import './globals.css'
 import { ReduxProvider } from '@/lib/providers'
 import { ThemeProvider } from '@/components/containers/theme-provider'
+import { LoadingBarContainer } from '@/components/containers/loading-bar-container'
 
 export const metadata: Metadata = {
   title: 'Websocket Market Dashboard',
@@ -24,6 +25,7 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           <ReduxProvider>
+            <LoadingBarContainer />
             {children}
           </ReduxProvider>
         </ThemeProvider>

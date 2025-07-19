@@ -140,7 +140,7 @@ export class BollingerBands extends SeriesClass {
       // Update both chart series with calculated Bollinger Bands data
       if (this.upperBandSeriesApi && this.lowerBandSeriesApi && this.upperBandData.length > 0) {
         console.log(`UpperBandData is ${this.upperBandData ?? 'ERROR: NULL DETECTED'}, LowerBandData is ${this.lowerBandData ?? 'ERROR: NULL DETECTED'}`)
-        debugger;
+        //debugger;
         this.upperBandSeriesApi.setData(this.upperBandData)
         this.lowerBandSeriesApi.setData(this.lowerBandData)
         console.log(`✅ BollingerBands ${this.seriesType} - Updated chart with ${this.upperBandData.length} Bollinger Bands points`)
@@ -171,7 +171,7 @@ export class BollingerBands extends SeriesClass {
       // Calculate new Bollinger Bands point if we have enough data
       if (this.rawDataBuffer.length >= this.options.period) {
         const newBBPoint = this.calculateSingleBollingerPoint(this.rawDataBuffer, this.rawDataBuffer.length - 1)
-        debugger;
+        //debugger;
         if (newBBPoint && newBBPoint.upper && newBBPoint.lower) {
           // Add to our Bollinger Bands data
           this.upperBandData.push(newBBPoint.upper)

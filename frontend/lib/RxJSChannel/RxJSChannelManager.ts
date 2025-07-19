@@ -465,6 +465,16 @@ export class RxJSChannelManager {
   }
 
   /**
+   * Get observable for first data emissions (initial_data events)
+   * This is useful for loading states
+   */
+  getFirstDataObservable(): Observable<ChannelMessage> {
+    return this.channelSubject.pipe(
+      filter(message => message.updateType === 'initial_data')
+    )
+  }
+
+  /**
    * Clean up all resources
    */
   destroy(): void {

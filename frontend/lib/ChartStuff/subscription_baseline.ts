@@ -9,6 +9,16 @@ export function generateSubscriptionId(
   range: TimeRange,
   marketId: String | string | null
 ): string {
+  // Validate inputs
+  if (!marketId || marketId === 'null' || marketId === 'undefined') {
+    console.warn('⚠️ generateSubscriptionId: Invalid marketId provided', {
+      marketId,
+      seriesType,
+      range
+    })
+    throw new Error(`Invalid marketId: ${marketId}. Cannot generate subscription ID.`)
+  }
+  
   // Convert SeriesType to lowercase side to match RxJS format
   const side = seriesType.toLowerCase() // 'YES' -> 'yes', 'NO' -> 'no'
   // Use marketId&side&range format to match RxJSChannelManager.generateChannelKey()

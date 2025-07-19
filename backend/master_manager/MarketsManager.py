@@ -50,6 +50,7 @@ from .polymarket_client.polymarket_message_processor import PolymarketMessagePro
 from .polymarket_client.polymarket_ticker_publisher import PolymarketTickerPublisher
 from .kalshi_client.kalshi_ticker_publisher import KalshiTickerPublisher
 from .utils.tglobal_config import PUBLISH_INTERVAL_SECONDS
+from .arbitrage_manager import ArbitrageManager
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -103,6 +104,10 @@ class MarketsManager:
             publish_interval=PUBLISH_INTERVAL_SECONDS
         )
         
+        # Initialize ArbitrageManager
+        self.arbitrage_manager = ArbitrageManager(min_spread_threshold=0.02)
+        self.arbitrage_manager.set_processors(self.kalshi_processor, self.polymarket_processor)
+        
         # Set up processor callbacks
         self.kalshi_processor.set_error_callback(self._handle_kalshi_error)
         self.kalshi_processor.set_orderbook_update_callback(self._handle_kalshi_orderbook_update)
@@ -113,6 +118,11 @@ class MarketsManager:
         # Connect processors to queues
         self.kalshi_queue.set_message_handler(self.kalshi_processor.handle_message)
         self.polymarket_queue.set_message_handler(self.polymarket_processor.handle_message)
+
+        #single market - initialize token ids 
+        self.kalshi_sid = -1 #number is not usable yet
+        self.polymarket_yes_id = ""
+        self.polymarket_no_id = ""
         
         # Track if async components are started
         self._async_started = False
@@ -193,6 +203,10 @@ class MarketsManager:
                 token_ids = [subscription_id]
         else:
             token_ids = subscription_id
+        
+        if len(token_ids) > 1:
+            self.polymarket_yes_id = token_ids[0]
+            self.polymarket_no_id = token_ids[1]
 
         # Create client config with token_ids
         # Check for debug logging environment variable
@@ -286,7 +300,7 @@ class MarketsManager:
                 return await client.connect()
 
         # For Kalshi, subscription_id should be the ticker (e.g., "KXPRESPOLAND-NT")
-        ticker = subscription_id
+        ticker = subscription_id.removeprefix("kalshi_") #shhould parse
         
         try:
             # @TODO pass credentials for auth instead of using the defaults 
@@ -452,7 +466,8 @@ class MarketsManager:
     async def _handle_kalshi_orderbook_update(self, sid: int, orderbook_state) -> None:
         """Handle orderbook updates from Kalshi message processor."""
         logger.debug(f"Orderbook updated for sid={sid}, ticker={orderbook_state.market_ticker}")
-        # Could emit events here for external orderbook consumers
+        # Trigger arbitrage detection
+        await self.arbitrage_manager.handle_kalshi_orderbook_update(sid, orderbook_state)
     
     async def _handle_polymarket_error(self, error_info: Dict[str, Any]) -> None:
         """Handle errors from Polymarket message processor."""
@@ -462,7 +477,8 @@ class MarketsManager:
     async def _handle_polymarket_orderbook_update(self, asset_id: str, orderbook_state) -> None:
         """Handle orderbook updates from Polymarket message processor."""
         logger.debug(f"Orderbook updated for asset_id={asset_id}, market={orderbook_state.market}")
-        # Could emit events here for external orderbook consumers
+        # Trigger arbitrage detection
+        await self.arbitrage_manager.handle_polymarket_orderbook_update(asset_id, orderbook_state)
     
     def get_kalshi_orderbook(self, sid: int):
         """Get current Kalshi orderbook state for a market."""
@@ -515,6 +531,31 @@ class MarketsManager:
         await self.polymarket_ticker_publisher.stop()
         await self.polymarket_ticker_publisher.start()
         logger.info("Polymarket ticker publisher restarted")
+    
+    # Arbitrage Management Methods
+    def add_arbitrage_market_pair(self, market_pair: str, kalshi_sid: int, polymarket_yes_asset_id: str, polymarket_no_asset_id: str):
+        """Add a market pair for arbitrage monitoring."""
+        return self.arbitrage_manager.add_market_pair(market_pair, kalshi_sid, polymarket_yes_asset_id, polymarket_no_asset_id)
+    
+    def remove_arbitrage_market_pair(self, market_pair: str):
+        """Remove a market pair from arbitrage monitoring."""
+        return self.arbitrage_manager.remove_market_pair(market_pair)
+    
+    def set_arbitrage_alert_callback(self, callback):
+        """Set callback for arbitrage alert notifications."""
+        return self.arbitrage_manager.set_arbitrage_alert_callback(callback)
+    
+    async def check_arbitrage_for_pair(self, market_pair: str):
+        """Check arbitrage opportunities for a specific market pair."""
+        return await self.arbitrage_manager.check_arbitrage_for_pair(market_pair)
+    
+    async def check_all_arbitrage_opportunities(self):
+        """Check arbitrage opportunities for all registered market pairs."""
+        return await self.arbitrage_manager.check_all_arbitrage_opportunities()
+    
+    def get_arbitrage_stats(self):
+        """Get arbitrage manager statistics."""
+        return self.arbitrage_manager.get_stats()
     
 # Convenience function for quick setup
 def create_markets_manager(config_path: Optional[str] = None) -> MarketsManager:

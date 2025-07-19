@@ -99,7 +99,7 @@ class ConnectionState:
 # Global state manager (single worker safe)
 connection_state_manager = ConnectionState()
 
-class TickerStreamManager:
+class GlobalManager:
     """Manages WebSocket connections and ticker update streaming using advanced channel manager"""
     
     def __init__(self, channel_manager=None):
@@ -158,7 +158,7 @@ class TickerStreamManager:
         await self._broadcast_ticker_update(ticker_data)
 
 # Global stream manager instance
-stream_manager = TickerStreamManager()
+stream_manager = GlobalManager()
 
 # Utility functions for market subscription API
 def validate_market_request(platform: str, market_identifier: str, token_ids: any = "") -> None:
@@ -709,6 +709,29 @@ async def publish_ticker_update(ticker_data: dict):
     # Use global channel manager directly to ensure same instance
     from backend.global_manager import global_channel_manager
     await global_channel_manager.broadcast_ticker_update(ticker_data)
+
+async def publish_arbitrage_alert(alert_data: dict):
+    """
+    Publish arbitrage alert to WebSocket clients
+    
+    Expected format:
+    {
+        "type": "arbitrage_alert",
+        "market_pair": "some_market_pair",
+        "timestamp": "ISO timestamp",
+        "spread": float,
+        "direction": "kalshi_to_polymarket" or "polymarket_to_kalshi",
+        "side": "yes" or "no",
+        "kalshi_price": float,
+        "polymarket_price": float,
+        "kalshi_market_id": int,
+        "polymarket_asset_id": str,
+        "confidence": float
+    }
+    """
+    # Use global channel manager directly to ensure same instance
+    from backend.global_manager import global_channel_manager
+    await global_channel_manager.broadcast_arbitrage_alert(alert_data)
 
 if __name__ == "__main__":
     uvicorn.run(

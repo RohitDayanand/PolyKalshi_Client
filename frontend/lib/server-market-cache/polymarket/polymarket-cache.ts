@@ -11,7 +11,7 @@ export class PolymarketServerCache extends BaseServerMarketCache {
   async fetchMarkets(): Promise<CachedMarket[]> {
     const allMarkets: CachedMarket[] = []
     let nextCursor: string | null = null
-    const maxMarkets = 200 // Reduced for faster iteration
+    const maxMarkets = 5000 // Reduced for faster iteration
     const batchSize = 500 // Polymarket API limit per request
     let offset = 0
     

@@ -31,56 +31,72 @@ class PolymarketOrderbookState:
         self.asks.clear()
         
         # Process bids - use .get() for safety
+        bid_count = 0
         for bid in message_data.get('bids', []):
             price = str(bid.get('price', '0'))
             size = str(bid.get('size', '0'))
             if price != '0' and size != '0':
                 self.bids[price] = PolymarketOrderbookLevel(price=price, size=size)
+                bid_count += 1
         
         # Process asks - use .get() for safety
+        ask_count = 0
         for ask in message_data.get('asks', []):
             price = str(ask.get('price', '0'))
             size = str(ask.get('size', '0'))
             if price != '0' and size != '0':
                 self.asks[price] = PolymarketOrderbookLevel(price=price, size=size)
+                ask_count += 1
                 
         # Update metadata
         self.last_update_time = timestamp
         self.last_hash = message_data.get('hash')
         self.last_timestamp = message_data.get('timestamp')
         
-        logger.debug(f"Applied book snapshot for asset_id={self.asset_id}, bids={len(self.bids)}, asks={len(self.asks)}")
+        logger.info(f"[BOOK_SNAPSHOT] Applied book snapshot for asset_id={self.asset_id}, processed {bid_count} bids, {ask_count} asks, timestamp={self.last_timestamp}")
     
     def apply_price_changes(self, changes: List[Dict[str, Any]], timestamp: datetime) -> None:
         """Apply price changes - full override of specific price levels."""
+        changes_applied = []
+        
         for change in changes:
-            price = float(change.get('price', '0'))
+            price_str = str(change.get('price', '0'))
             side = change.get('side', '').upper()
-            size = float(change.get('size', '0'))
+            size_str = str(change.get('size', '0'))
             
-            if price == '0':
+            if price_str == '0' or float(price_str) == 0:
                 continue
                 
             if side == 'BUY':
                 # Update bid side
-                if size == '0' or float(size) == 0:
+                if size_str == '0' or float(size_str) == 0:
                     # Remove level
-                    self.bids.pop(price, None)
+                    if price_str in self.bids:
+                        self.bids.pop(price_str, None)
+                        changes_applied.append(f"REMOVED BID@{price_str}")
                 else:
                     # Update/add level (full override)
-                    self.bids[price].set_size(size)
+                    if price_str in self.bids:
+                        self.bids[price_str].set_size(size_str)
+                        changes_applied.append(f"UPDATED BID@{price_str}={size_str}")
+                    else:
+                        self.bids[price_str] = PolymarketOrderbookLevel(price=price_str, size=size_str)
+                        changes_applied.append(f"ADDED BID@{price_str}={size_str}")
                     
             elif side == 'SELL':
                 # Update ask side
-                if size == '0' or float(size) == 0:
+                if size_str == '0' or float(size_str) == 0:
                     # Remove level
-                    self.asks.pop(price, None)
+                    if price_str in self.asks:
+                        self.asks.pop(price_str, None)
+                        changes_applied.append(f"REMOVED ASK@{price_str}")
                 else:
                     # Update/add level (full override)
-                    self.asks[price] = PolymarketOrderbookLevel(price=price, size=size)
+                    self.asks[price_str] = PolymarketOrderbookLevel(price=price_str, size=size_str)
+                    changes_applied.append(f"UPDATED ASK@{price_str}={size_str}")
         
         self.last_update_time = timestamp
-        logger.debug(f"Applied price changes for asset_id={self.asset_id}, bids={len(self.bids)}, asks={len(self.asks)}")
+        logger.info(f"[PRICE_CHANGES] Applied {len(changes_applied)} changes for asset_id={self.asset_id}: {', '.join(changes_applied)}")
     
     def apply_tick_size_change(self, old_tick_size: str, new_tick_size: str, timestamp: datetime) -> None:
         """Apply tick size change - create temporary levels with size=1."""
@@ -126,7 +142,8 @@ class PolymarketOrderbookState:
             Dict with format: {
                 "bid": float,
                 "ask": float,
-                "volume": float
+                "volume": float,
+                "last_timestamp": str (timestamp from last message)
             }
         """
         best_bid = self.get_best_bid()
@@ -135,5 +152,6 @@ class PolymarketOrderbookState:
         return {
             "bid": best_bid.price_float if best_bid else None,
             "ask": best_ask.price_float if best_ask else None,
-            "volume": self.get_total_bid_volume() + self.get_total_ask_volume()
+            "volume": self.get_total_bid_volume() + self.get_total_ask_volume(),
+            "last_timestamp": self.last_timestamp
         }

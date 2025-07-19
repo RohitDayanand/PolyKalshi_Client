@@ -38,13 +38,17 @@ class TickerStreamPublisher:
             platform: 'polymarket' or 'kalshi'
             summary_stats: Dictionary containing bid/ask/volume data
                 Expected format: {
-                    "yes": {"bid": float, "ask": float, "volume": float},
-                    "no": {"bid": float, "ask": float, "volume": float}
+                    "yes": {"bid": float, "ask": float, "volume": float, "last_timestamp": str},
+                    "no": {"bid": float, "ask": float, "volume": float, "last_timestamp": str}
                 }
         """
         if not self.running:
             logger.warning("Publisher not running, skipping update")
             return
+        
+        # Extract candlestick timestamps from the summary stats for logging
+        yes_timestamp = summary_stats.get('yes', {}).get('last_timestamp')
+        no_timestamp = summary_stats.get('no', {}).get('last_timestamp')
         
         ticker_data = {
             "type": "ticker_update",  # Add type field for frontend compatibility
@@ -57,11 +61,11 @@ class TickerStreamPublisher:
         try:
             # Direct async call - no event loop juggling
             await publish_ticker_update(ticker_data)
-            logger.debug(f"Published ticker update for {platform} market {market_id}")
+            logger.info(f"[TICKER_STREAM] Published ticker update for {platform} market {market_id} - Candlestick timestamps: YES={yes_timestamp}, NO={no_timestamp}, Stream timestamp={ticker_data['timestamp']}")
         except Exception as e:
             logger.error(f"Failed to publish ticker update for {platform} market {market_id}: {e}")
 
-# Global publisher instance
+# Global publisher instance - everytime you import you import the singleton
 ticker_publisher = TickerStreamPublisher()
 
 # Async convenience functions for direct use by orderbook processors
