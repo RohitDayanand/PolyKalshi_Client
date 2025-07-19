@@ -218,27 +218,27 @@ def parse_market_string_id(market_string_id: str) -> Dict[str, str]:
         raise ValueError(f"Failed to parse market_string_id: {str(e)}")
 
 
-# Global MarketsManager instance (initialized on app startup)
-markets_manager = None
+# Global MarketsCoordinator instance (initialized on app startup)
+markets_coordinator = None
 
-async def initialize_markets_manager():
-    """Initialize MarketsManager during app startup when event loop is available"""
-    global markets_manager
+async def initialize_markets_coordinator():
+    """Initialize MarketsCoordinator during app startup when event loop is available"""
+    global markets_coordinator
     try:
-        from backend.master_manager.MarketsManager import MarketsManager
-        markets_manager = MarketsManager()
-        logger.info("MarketsManager initialized successfully")
+        from backend.master_manager.markets_coordinator import MarketsCoordinator
+        markets_coordinator = MarketsCoordinator()
+        logger.info("MarketsCoordinator initialized successfully")
         return True
     except ImportError as e:
-        logger.error(f"Failed to import MarketsManager: {e}")
+        logger.error(f"Failed to import MarketsCoordinator: {e}")
         return False
     except Exception as e:
-        logger.error(f"Failed to initialize MarketsManager: {e}")
+        logger.error(f"Failed to initialize MarketsCoordinator: {e}")
         return False
 
 async def handle_market_connection(platform: str, market_id: str) -> Dict[str, any]:
     """
-    Handle market connection via MarketsManager
+    Handle market connection via MarketsCoordinator
     
     Returns connection result with status and details
     """
@@ -253,15 +253,15 @@ async def handle_market_connection(platform: str, market_id: str) -> Dict[str, a
             message="Establishing connection to market data feed"
         )
         
-        # Connect via MarketsManager
-        if markets_manager is None:
-            logger.error("MarketsManager not available - cannot establish market connection")
-            connection_state_manager.update_status(market_id, "failed", "MarketsManager not available")
+        # Connect via MarketsCoordinator
+        if markets_coordinator is None:
+            logger.error("MarketsCoordinator not available - cannot establish market connection")
+            connection_state_manager.update_status(market_id, "failed", "MarketsCoordinator not available")
             success = False
         else:
-            # Call MarketsManager.connect() with proper parameters
-            logger.info(f"Connecting to {platform} market via MarketsManager: {market_id}")
-            success = await markets_manager.connect(market_id, platform)
+            # Call MarketsCoordinator.connect() with proper parameters
+            logger.info(f"Connecting to {platform} market via MarketsCoordinator: {market_id}")
+            success = await markets_coordinator.connect(market_id, platform)
             
             if success:
                 connection_state_manager.update_status(market_id, "connected", "Connection established successfully")
@@ -308,19 +308,19 @@ async def startup_event():
     """Initialize components when FastAPI app starts"""
     logger.info("Initializing FastAPI app components...")
     
-    # Initialize MarketsManager
-    success = await initialize_markets_manager()
+    # Initialize MarketsCoordinator
+    success = await initialize_markets_coordinator()
     if success:
-        logger.info("✅ MarketsManager ready for market connections")
+        logger.info("✅ MarketsCoordinator ready for market connections")
         
-        # Start MarketsManager async components (queues and ticker publishers)
+        # Start MarketsCoordinator async components (queues and ticker publishers)
         try:
-            await markets_manager.start_async_components()
-            logger.info("✅ MarketsManager ticker publishers started")
+            await markets_coordinator.start_async_components()
+            logger.info("✅ MarketsCoordinator ticker publishers started")
         except Exception as e:
-            logger.error(f"❌ Failed to start MarketsManager async components: {e}")
+            logger.error(f"❌ Failed to start MarketsCoordinator async components: {e}")
     else:
-        logger.warning("⚠️ MarketsManager not available - market connections will fail")
+        logger.warning("⚠️ MarketsCoordinator not available - market connections will fail")
     
     logger.info("FastAPI app startup complete")
 
