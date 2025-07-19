@@ -2,6 +2,9 @@
 
 import { useState } from "react"
 import { useMarketSubscription } from "@/lib/store/marketSubscriptionHooks"
+import { useAppDispatch } from "@/lib/store/hooks"
+import { startLoading, stopLoading } from "@/lib/store/loadingBarSlice"
+import { useFirstDataEmission } from "@/hooks/useFirstDataEmission"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -18,6 +21,10 @@ export function MarketList({ platform }: MarketListProps) {
   const [query, setQuery] = useState("")
   const [selectedMarkets, setSelectedMarkets] = useState<Set<string>>(new Set())
   const { subscribeToMarket } = useMarketSubscription()
+  const dispatch = useAppDispatch()
+  
+  // Hook to listen for first data emissions
+  useFirstDataEmission()
   
   // Keep existing search functionality - only replace subscription logic
   const [searchResults, setSearchResults] = useState<{
@@ -74,8 +81,13 @@ export function MarketList({ platform }: MarketListProps) {
       
       console.log('🔍 DEBUG: Adding market with tokenIds:', market.tokenIds)
       
+      // Start loading bar
+      dispatch(startLoading({ marketId: market.id, platform }))
+      
       // Subscribe to the market for WebSocket data and backend ticker
       await subscribeToMarket(platform, market)
+      
+      // Note: Loading bar will be stopped by useFirstDataEmission hook when first data is received
       
       // Update local selection state
       setSelectedMarkets(prev => new Set([...prev, market.id]))
@@ -84,6 +96,8 @@ export function MarketList({ platform }: MarketListProps) {
       console.log(`✅ Token IDs:`, market.tokenIds)
     } catch (error) {
       console.error('Error adding market:', error)
+      // Stop loading bar on error
+      dispatch(stopLoading())
     }
   }
 

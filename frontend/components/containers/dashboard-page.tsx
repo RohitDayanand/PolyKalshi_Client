@@ -5,8 +5,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { MarketList } from "@/components/containers/market-list"
 import { VisualizationPanel } from "@/components/containers/visualization-panel"
 import { SubscribedMarkets } from "@/components/containers/subscribed-markets"
-import { CacheDebugPanel } from "@/components/containers/cache-debug-panel"
-import { QuickKalshiSubscribe } from "@/components/containers/quick-kalshi-subscribe"
 
 export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState("polymarket")
@@ -25,7 +23,7 @@ export default function DashboardPage() {
         </div>
         
         {/* Below: Sidebar content in a responsive grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 gap-6">
           <div className="space-y-6">
             <Tabs value={activeTab} onValueChange={setActiveTab}>
               <TabsList className="grid grid-cols-2 w-full">
@@ -40,12 +38,6 @@ export default function DashboardPage() {
               </TabsContent>
             </Tabs>
             <SubscribedMarkets />
-          </div>
-          <div>
-            <CacheDebugPanel />
-          </div>
-          <div className="space-y-6">
-            <QuickKalshiSubscribe />
           </div>
         </div>
       </main>

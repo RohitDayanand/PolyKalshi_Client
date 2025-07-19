@@ -227,6 +227,22 @@ class ChannelManager:
             logger.info(f"📻 CHANNEL MANAGER DEBUG: Total connections: {len(self.connections)}")
             logger.info(f"📻 CHANNEL MANAGER DEBUG: Total subscriptions: {len(self.subscriptions)}")
     
+    async def broadcast_arbitrage_alert(self, alert_data: Dict):
+        """Broadcast arbitrage alert to all connected clients"""
+        logger.info(f"🚨 CHANNEL MANAGER: Broadcasting arbitrage alert for {alert_data.get('market_pair')}")
+        
+        # For now, broadcast to all connections (can be filtered later)
+        alert_message = {
+            "type": "arbitrage_alert",
+            **alert_data
+        }
+        
+        if self.connections:
+            await self._send_to_subscribers(self.connections, alert_message)
+            logger.info(f"🚨 CHANNEL MANAGER: Sent arbitrage alert to {len(self.connections)} clients")
+        else:
+            logger.warning("🚨 CHANNEL MANAGER: No connections to send arbitrage alert to")
+    
     async def _send_to_subscribers(self, subscribers: Set[WebSocket], data: Dict):
         """Send data to set of WebSocket subscribers with error handling"""
         message = json.dumps(data)

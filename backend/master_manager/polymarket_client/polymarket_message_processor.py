@@ -128,7 +128,7 @@ class PolymarketMessageProcessor:
         # Apply the book snapshot (complete overwrite)
         try:
             orderbook.apply_book_snapshot(message_data, current_time)
-            logger.info(f"Applied book snapshot for asset_id={asset_id}")
+            logger.info(f"[BOOK_SNAPSHOT] Applied book snapshot for asset_id={asset_id}, bids={len(orderbook.bids)}, asks={len(orderbook.asks)}")
             
             # Notify callback if set
             if self.orderbook_update_callback:
@@ -142,6 +142,7 @@ class PolymarketMessageProcessor:
                     
         except Exception as e:
             logger.error(f"Error applying book snapshot for asset_id={asset_id}: {e}")
+            logger.error(f"Message data: {message_data}")
     
     async def _handle_price_change_message(self, message_data: Dict[str, Any], metadata: Dict[str, Any]) -> None:
         """Handle price changes - full override of specific price levels."""
@@ -166,11 +167,11 @@ class PolymarketMessageProcessor:
         # Apply the price changes
         try:
             current_time = datetime.now()
+            logger.info(f"[PRICE_CHANGE] Applying {len(changes)} price changes for asset_id={asset_id}")
             orderbook.apply_price_changes(changes, current_time)
-            logger.debug(f"Applied price changes for asset_id={asset_id}")
+            logger.info(f"[PRICE_CHANGE] Successfully applied price changes for asset_id={asset_id}, bids={len(orderbook.bids)}, asks={len(orderbook.asks)}")
             
             # Notify callback if set
-            # Explain this step
             if self.orderbook_update_callback:
                 try:
                     if asyncio.iscoroutinefunction(self.orderbook_update_callback):
@@ -182,6 +183,7 @@ class PolymarketMessageProcessor:
                     
         except Exception as e:
             logger.error(f"Error applying price changes for asset_id={asset_id}: {e}")
+            logger.error(f"Changes data: {changes}")
     
     async def _handle_tick_size_change_message(self, message_data: Dict[str, Any], metadata: Dict[str, Any]) -> None:
         """Handle tick size changes - create temporary levels with size=1."""

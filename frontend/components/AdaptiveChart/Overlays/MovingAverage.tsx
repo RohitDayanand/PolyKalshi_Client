@@ -158,12 +158,25 @@ export class MovingAverage extends SeriesClass {
           
           // Update the chart series with new moving average point
           if (this.seriesApi) {
-            this.seriesApi.update(newMAPoint)
-            console.log(`✅ MovingAverage ${this.seriesType} - Appended moving average point:`, newMAPoint)
+            try {
+              this.seriesApi.update(newMAPoint)
+              // Store the successfully appended point as the new last point
+              this.lastPoint = newMAPoint
+              console.log(`✅ [BASECLASS_APPEND_DATA_SUCCESS] ${this.seriesType} - Successfully appended data point`)
+            } catch (error) {
+              console.error(`❌ [BASECLASS_APPEND_DATA_ERROR] ${this.seriesType} - Data append failed:`, {
+                dataPoint: { time: newMAPoint.time, value: newMAPoint.value },
+                lastPoint: this.lastPoint,
+                timeConflict: this.lastPoint && newMAPoint.time <= this.lastPoint.time,
+                subscriptionId: this.subscriptionId,
+                marketId: this.marketId,
+                error: error
+              })
+            }
           }
+        } else {
+          console.log(`⏳ MovingAverage ${this.seriesType} - Need ${this.options.period - this.rawDataBuffer.length} more points for moving average`)
         }
-      } else {
-        console.log(`⏳ MovingAverage ${this.seriesType} - Need ${this.options.period - this.rawDataBuffer.length} more points for moving average`)
       }
     } catch (error) {
       console.error(`❌ MovingAverage ${this.seriesType} - Failed to append moving average data:`, error)

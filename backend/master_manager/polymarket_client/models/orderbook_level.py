@@ -10,8 +10,8 @@ from dataclasses import dataclass
 @dataclass
 class PolymarketOrderbookLevel:
     """Represents a single price level in the Polymarket orderbook."""
-    price: float
-    size: float
+    price: str
+    size: str
     
     @property
     def price_float(self) -> float:
@@ -23,8 +23,8 @@ class PolymarketOrderbookLevel:
         """Get size as float."""
         return float(self.size)
 
-    @property
-    def set_size(self, size: float) -> None:
+    def set_size(self, size: str) -> None:
+        """Set the size of this order level."""
         self.size = size
     
     # We cannot set the price level - the orderbook state will pop the levels if they are 

@@ -50,6 +50,7 @@ export default abstract class SeriesClass {
   private rxjsUnsubscribe: (() => void) | null = null  // Cleanup function for observable reuse
   private isSubscribed: boolean = false // Track subscription state
   private isRemoved: boolean = false // Track removal state to prevent double removal
+  protected lastPoint: any = null // Store last point for time conflict detection
   
   // New properties for RxJS channel manager
   protected marketId: string | null = null
@@ -114,7 +115,7 @@ export default abstract class SeriesClass {
     if (this.seriesApi && this.chartInstance) {
       try {
         this.chartInstance.removeSeries(this.seriesApi)
-      } catch (error) {
+      } catch {
         // Series already removed or invalid
       } finally {
         this.seriesApi = null
@@ -404,6 +405,8 @@ export default abstract class SeriesClass {
     if (this.seriesApi && data.length > 0) {
       try {
         this.seriesApi.setData(data)
+        // Store the last point for time conflict detection
+        this.lastPoint = data[data.length - 1]
         console.log(`✅ [BASECLASS_UPDATE_DATA_SUCCESS] ${this.seriesType} - Successfully set ${data.length} data points`)
       } catch (error) {
         console.error(`❌ [BASECLASS_UPDATE_DATA_ERROR] ${this.seriesType} - Data update failed:`, {
@@ -429,20 +432,37 @@ export default abstract class SeriesClass {
       hasSeriesApi: !!this.seriesApi,
       subscriptionId: this.subscriptionId,
       marketId: this.marketId,
-      timeRange: this.currentTimeRange
+      timeRange: this.currentTimeRange,
+      lastPoint: this.lastPoint
     })
     
     if (this.seriesApi) {
       try {
         this.seriesApi.update(dataPoint)
+        // Store the successfully appended point as the new last point
+        this.lastPoint = dataPoint
         console.log(`✅ [BASECLASS_APPEND_DATA_SUCCESS] ${this.seriesType} - Successfully appended data point`)
       } catch (error) {
         console.error(`❌ [BASECLASS_APPEND_DATA_ERROR] ${this.seriesType} - Data append failed:`, {
           dataPoint: { time: dataPoint.time, value: dataPoint.value },
+          lastPoint: this.lastPoint,
+          timeConflict: this.lastPoint && dataPoint.time <= this.lastPoint.time,
           subscriptionId: this.subscriptionId,
           marketId: this.marketId,
           error: error
         })
+        
+        // Check for time conflict specifically
+        if (this.lastPoint && dataPoint.time <= this.lastPoint.time) {
+          console.warn(`⚠️ [TIME_CONFLICT] ${this.seriesType} - Time conflict detected:`, {
+            newPointTime: dataPoint.time,
+            lastPointTime: this.lastPoint.time,
+            newPointTimeType: typeof dataPoint.time,
+            lastPointTimeType: typeof this.lastPoint.time,
+            isRealConflict: dataPoint.time <= this.lastPoint.time
+          })
+        }
+        
         this.onError(`Data append failed: ${error}`)
       }
     } else {
@@ -474,10 +494,35 @@ export default abstract class SeriesClass {
       newRange,
       currentSubscriptionId: this.subscriptionId,
       isCurrentlySubscribed: this.isSubscribed,
-      marketId: this.marketId
+      instanceMarketId: this.marketId,
+      parameterMarketId: marketId
     })
 
-    let newSubscriptionId: string = generateSubscriptionId(this.seriesType, newRange, `kalshi_${marketId}`)
+    // Use the instance's marketId if available, otherwise use the parameter
+    const effectiveMarketId = this.marketId || marketId
+    
+    if (!effectiveMarketId) {
+      console.warn(`⚠️ [BASECLASS_RANGE_CHANGE] ${this.seriesType} - No marketId available, aborting range change`, {
+        newRange,
+        currentRange: this.currentTimeRange,
+        instanceMarketId: this.marketId,
+        parameterMarketId: marketId
+      })
+      return
+    }
+
+    let newSubscriptionId: string
+    try {
+      newSubscriptionId = generateSubscriptionId(this.seriesType, newRange, effectiveMarketId)
+    } catch (subscriptionError) {
+      console.error(`❌ [BASECLASS_RANGE_CHANGE] ${this.seriesType} - Failed to generate subscription ID`, {
+        newRange,
+        currentRange: this.currentTimeRange,
+        effectiveMarketId,
+        error: subscriptionError
+      })
+      return
+    }
 
     try {
       if (!newSubscriptionId) {

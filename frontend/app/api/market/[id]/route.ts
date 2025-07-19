@@ -18,7 +18,6 @@ export async function GET(
     console.log('🔍 API: Getting market for ID:', id)
     
     // Check cache stats
-    const cacheCheck = await marketSearchService.
     const cacheStats = await marketSearchService.getCacheStats()
     console.log('🔍 API: Cache stats:', cacheStats)
     

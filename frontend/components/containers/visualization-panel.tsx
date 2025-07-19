@@ -9,9 +9,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { PriceChart } from "@/components/charts/price-chart"
 import { OrderbookChart } from "@/components/charts/orderbook-chart"
 import { VolumeChart } from "@/components/charts/volume-chart"
-import { MarketComparison } from "@/components/charts/market-comparison"
-import { Button } from "@/components/ui/button"
-import { CheckSquare } from "lucide-react"
 import type { Market } from "@/types/market"
 import { AdaptiveChart } from "../AdaptiveChart/fullscreen/AdaptiveChart"
 
@@ -44,8 +41,6 @@ export function VisualizationPanel() {
   const [market1ChartType, setMarket1ChartType] = useState("price")
   const [market2ChartType, setMarket2ChartType] = useState("price")
   
-  // Center chart configuration
-  const [centerChartType, setCenterChartType] = useState("comparison")
 
   // Chart data states
   const [market1Data, setMarket1Data] = useState<{ yes: any[], no: any[] }>({ yes: [], no: [] })
@@ -64,25 +59,9 @@ export function VisualizationPanel() {
     )
   }
 
-  const renderChart = (chartType: string, markets: Market[]) => {
-    switch (chartType) {
-      case "price":
-        return <PriceChart markets={markets} timeframe={timeframe} />
-      case "orderbook":
-        return <OrderbookChart markets={markets} />
-      case "volume":
-        return <VolumeChart markets={markets} timeframe={timeframe} />
-      case "comparison":
-        return <MarketComparison markets={markets} timeframe={timeframe} />
-      default:
-        return <PriceChart markets={markets} timeframe={timeframe} />
-    }
-  }
-
-  const centerMarkets = [market1, market2].filter(Boolean) as Market[]
 
   return (
-    <Card className="h-full min-h-[1200px] w-full">
+    <Card className="h-full min-h-[800px] w-full">
       <CardHeader className="pb-4">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <CardTitle className="text-xl">Market Pair Visualization</CardTitle>
@@ -220,75 +199,6 @@ export function VisualizationPanel() {
           </Card>
         </div>
 
-        {/* Bottom Row: Large Center Chart */}
-        <Card className="h-[600px] w-full">
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between gap-4">
-              <CardTitle className="text-lg">Pair Comparison</CardTitle>
-              <div className="flex items-center gap-2">
-                <Tabs value={centerChartType} onValueChange={setCenterChartType}>
-                  <TabsList className="grid w-full grid-cols-4">
-                    <TabsTrigger value="comparison" className="text-xs">Comparison</TabsTrigger>
-                    <TabsTrigger value="price" className="text-xs">Price</TabsTrigger>
-                    <TabsTrigger value="volume" className="text-xs">Volume</TabsTrigger>
-                    <TabsTrigger value="orderbook" className="text-xs">Orderbook</TabsTrigger>
-                  </TabsList>
-                </Tabs>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="h-[520px] p-4">
-            {centerMarkets.length > 0 ? (
-              <AdaptiveChart
-                  isVisible={true}
-                  showControls={true}
-                  containerHeight={500}
-                  className="comparison-chart w-full h-full"
-                  staticData={market1Data}
-                  setStaticData={setMarket1Data}
-                  chartId="comparison"
-                  platform={centerMarkets[0]?.platform}
-                  marketId={centerMarkets[0]?.id}
-                />
-            ) : (
-              <div className="flex items-center justify-center h-full text-muted-foreground">
-                Select markets above to compare them here
-              </div>
-            )}
-          </CardContent>
-        </Card>
-        
-        {/* Cache Refresh Functionality */}
-        <Card className="w-full">
-          <CardHeader>
-            <CardTitle className="text-lg">Cache Management</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center gap-4">
-              <Button 
-                variant="outline" 
-                onClick={() => {
-                  // Add cache refresh logic here
-                  console.log('Refreshing cache...')
-                }}
-              >
-                Refresh Market Cache
-              </Button>
-              <Button 
-                variant="outline"
-                onClick={() => {
-                  // Add clear cache logic here
-                  console.log('Clearing cache...')
-                }}
-              >
-                Clear Cache
-              </Button>
-            </div>
-            <p className="text-sm text-muted-foreground">
-              Use these controls to refresh or clear the market data cache for better performance.
-            </p>
-          </CardContent>
-        </Card>
       </CardContent>
     </Card>
   )

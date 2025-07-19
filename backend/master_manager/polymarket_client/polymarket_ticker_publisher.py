@@ -152,19 +152,22 @@ class PolymarketTickerPublisher:
         bid = market_summary.get('bid')
         ask = market_summary.get('ask')
         volume = market_summary.get('volume', 0.0)
+        last_timestamp = market_summary.get('last_timestamp')
         
         # YES side data (direct from asset)
         yes_data = {
             "bid": bid,
             "ask": ask,
-            "volume": volume
+            "volume": volume,
+            "last_timestamp": last_timestamp
         }
         
         # NO side data (inverse of YES prices)
         no_data = {
             "bid": (1.0 - ask) if ask is not None else None,
             "ask": (1.0 - bid) if bid is not None else None,
-            "volume": volume  # Same volume for both sides
+            "volume": volume,  # Same volume for both sides
+            "last_timestamp": last_timestamp
         }
         
         return {
@@ -175,9 +178,13 @@ class PolymarketTickerPublisher:
     async def _safe_publish(self, market_id: str, summary_stats: Dict[str, Any]):
         """Safely publish ticker update with fire-and-forget approach (non-blocking)."""
         try:
+            # Extract timestamps from YES/NO data for logging
+            yes_timestamp = summary_stats.get('yes', {}).get('last_timestamp')
+            no_timestamp = summary_stats.get('no', {}).get('last_timestamp')
+            
             # Fire-and-forget: don't await, don't block orderbook processing
             publish_polymarket_update_nowait(market_id, summary_stats)
-            logger.debug(f"Scheduled ticker update for {market_id}")
+            logger.info(f"[TICKER_PUBLISH] Scheduled ticker update for {market_id} - YES timestamp: {yes_timestamp}, NO timestamp: {no_timestamp}")
             
         except Exception as e:
             logger.error(f"Failed to schedule ticker update for {market_id}: {e}")

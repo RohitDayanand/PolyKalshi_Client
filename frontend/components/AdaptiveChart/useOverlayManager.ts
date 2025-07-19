@@ -93,8 +93,16 @@ export function useOverlayManager({ chartInstanceRef, chartId, marketId, platfor
   */
 
   if (!platform) {
-    console.warn('No platform provided. Defaulting to "default".');
-    platform = 'kalshi';
+    console.warn('No platform provided. Cannot create overlays without platform information.');
+    return {
+      allOverlays: [],
+      updateOverlayVisibility: () => {},
+      removeOverlay: () => {},
+      addOverlay: () => {},
+      resetOverlays: () => {},
+      setOverlayProperty: () => {},
+      getCurrentOverlayState: () => ({})
+    }
   }
 
   /*
