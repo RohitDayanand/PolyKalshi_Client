@@ -21,7 +21,7 @@ import websockets
 from websockets.server import WebSocketServerProtocol
 from datetime import datetime, timedelta
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger()
 
 @dataclass
 class MockOrderbookLevel:
@@ -44,52 +44,41 @@ class MockKalshiMarket:
     dollar_volume: int = 50000
     dollar_open_interest: int = 250000
     
-    # Orderbook levels
-    yes_bids: Dict[str, MockOrderbookLevel] = field(default_factory=dict)  # price -> level
-    yes_asks: Dict[str, MockOrderbookLevel] = field(default_factory=dict)  # price -> level 
-    no_bids: Dict[str, MockOrderbookLevel] = field(default_factory=dict)   # price -> level
-    no_asks: Dict[str, MockOrderbookLevel] = field(default_factory=dict)   # price -> level
+    # Orderbook levels (all outstanding orders for yes and no)
+    yes: Dict[str, MockOrderbookLevel] = field(default_factory=dict)  # price -> level
+    no: Dict[str, MockOrderbookLevel] = field(default_factory=dict)   # price -> level
     
     # Tracking
     last_seq: int = 1000
     last_update: datetime = field(default_factory=datetime.now)
     
     def __post_init__(self):
-        if not self.yes_bids and not self.yes_asks:
+        if not self.yes and not self.no:
             self._initialize_orderbook()
-    
+
     def _initialize_orderbook(self):
         """Initialize realistic orderbook around current yes_bid/yes_ask"""
         if self.yes_bid is None or self.yes_ask is None:
             return
-            
-        # Create yes bid levels (decreasing prices)
+
+        # Create yes levels (bids below yes_ask, asks above yes_bid, all in one dict)
         for i in range(5):
             price = self.yes_bid - i
             if price >= 1:
                 size = random.randint(50, 200)
-                self.yes_bids[str(price)] = MockOrderbookLevel(price=str(price), size=size)
-        
-        # Create yes ask levels (increasing prices)
+                self.yes[str(price)] = MockOrderbookLevel(price=str(price), size=size)
         for i in range(5):
             price = self.yes_ask + i
             if price <= 99:
                 size = random.randint(50, 200)
-                self.yes_asks[str(price)] = MockOrderbookLevel(price=str(price), size=size)
-        
-        # Create no levels (complement of yes)
-        # No bid = 100 - yes_ask, No ask = 100 - yes_bid
-        for yes_ask_price in self.yes_asks:
-            no_bid_price = 100 - int(yes_ask_price)
-            if no_bid_price >= 1:
+                self.yes[str(price)] = MockOrderbookLevel(price=str(price), size=size)
+
+        # Create no levels (complement of yes, all in one dict)
+        for yes_price in self.yes:
+            no_price = 100 - int(yes_price)
+            if 1 <= no_price <= 99:
                 size = random.randint(50, 200)
-                self.no_bids[str(no_bid_price)] = MockOrderbookLevel(price=str(no_bid_price), size=size)
-        
-        for yes_bid_price in self.yes_bids:
-            no_ask_price = 100 - int(yes_bid_price)
-            if no_ask_price <= 99:
-                size = random.randint(50, 200)
-                self.no_asks[str(no_ask_price)] = MockOrderbookLevel(price=str(no_ask_price), size=size)
+                self.no[str(no_price)] = MockOrderbookLevel(price=str(no_price), size=size)
 
 class MockKalshiServer:
     """
@@ -154,7 +143,7 @@ class MockKalshiServer:
     async def start(self):
         """Start the mock WebSocket server"""
         logger.info(f"Starting MockKalshiServer on {self.host}:{self.port}")
-        
+        logger.info(f"checkign if self is bounded, {self._handle_connection} ")
         self.server = await websockets.serve(
             self._handle_connection,
             self.host,
@@ -186,7 +175,7 @@ class MockKalshiServer:
         
         logger.info("MockKalshiServer stopped")
     
-    async def _handle_connection(self, websocket: WebSocketServerProtocol, path: str):
+    async def _handle_connection(self, websocket: WebSocketServerProtocol):
         """Handle new WebSocket connection"""
         client_info = f"{websocket.remote_address[0]}:{websocket.remote_address[1]}"
         logger.info(f"New Kalshi connection from {client_info}")
@@ -318,39 +307,30 @@ class MockKalshiServer:
         """Send orderbook snapshot"""
         if sid not in self.markets:
             return
-        
+
         market = self.markets[sid]
         market.last_seq += 1
-        
-        # Format orderbook data exactly like real Kalshi API
-        yes_bids = []
-        for price, level in sorted(market.yes_bids.items(), key=lambda x: int(x[0]), reverse=True):
-            yes_bids.append([price, level.size])
-        
-        yes_asks = []
-        for price, level in sorted(market.yes_asks.items(), key=lambda x: int(x[0])):
-            yes_asks.append([price, level.size])
-        
-        no_bids = []
-        for price, level in sorted(market.no_bids.items(), key=lambda x: int(x[0]), reverse=True):
-            no_bids.append([price, level.size])
-        
-        no_asks = []
-        for price, level in sorted(market.no_asks.items(), key=lambda x: int(x[0])):
-            no_asks.append([price, level.size])
-        
+
+        yes_levels = []
+        for price, level in sorted(market.yes.items(), key=lambda x: int(x[0]), reverse=True):
+            yes_levels.append([price, level.size])
+
+        no_levels = []
+        for price, level in sorted(market.no.items(), key=lambda x: int(x[0]), reverse=True):
+            no_levels.append([price, level.size])
+
         snapshot_msg = {
             "type": "orderbook_snapshot",
             "sid": sid,
             "seq": market.last_seq,
             "msg": {
                 "market_ticker": market.market_ticker,
-                "yes": [yes_bids, yes_asks],
-                "no": [no_bids, no_asks],
+                "yes": yes_levels,
+                "no": no_levels,
                 "ts": int(time.time())
             }
         }
-        
+
         try:
             await websocket.send(json.dumps(snapshot_msg))
             logger.debug(f"Sent orderbook_snapshot for sid={sid}, seq={market.last_seq}")
@@ -400,94 +380,50 @@ class MockKalshiServer:
         """Send orderbook delta update"""
         if sid not in self.markets:
             return
-        
+
         market = self.markets[sid]
         market.last_seq += 1
-        
-        # Generate random orderbook change
+
+        # Generate random orderbook change for yes or no
         is_yes = random.choice([True, False])
-        is_bid = random.choice([True, False])
-        
-        # Pick a random price level to update
-        if is_yes and is_bid and market.yes_bids:
-            price = random.choice(list(market.yes_bids.keys()))
-            old_level = market.yes_bids[price]
+        book = market.yes if is_yes else market.no
+        contract_type = "yes" if is_yes else "no"
+
+        # If there are levels, update one; else, add a new one
+        if book:
+            price = random.choice(list(book.keys()))
+            old_level = book[price]
             new_size = max(0, old_level.size + random.randint(-50, 50))
-            
             if new_size == 0:
-                del market.yes_bids[price]
-                delta_data = [price, 0]  # Remove level
-            else:
-                market.yes_bids[price] = MockOrderbookLevel(price=price, size=new_size)
-                delta_data = [price, new_size]
-            
-            contract_type = "yes"
-            side = "bids"
-            
-        elif is_yes and not is_bid and market.yes_asks:
-            price = random.choice(list(market.yes_asks.keys()))
-            old_level = market.yes_asks[price]
-            new_size = max(0, old_level.size + random.randint(-50, 50))
-            
-            if new_size == 0:
-                del market.yes_asks[price]
+                del book[price]
                 delta_data = [price, 0]
             else:
-                market.yes_asks[price] = MockOrderbookLevel(price=price, size=new_size)
+                book[price] = MockOrderbookLevel(price=price, size=new_size)
                 delta_data = [price, new_size]
-            
-            contract_type = "yes"
-            side = "asks"
-            
-        elif not is_yes and is_bid and market.no_bids:
-            price = random.choice(list(market.no_bids.keys()))
-            old_level = market.no_bids[price]
-            new_size = max(0, old_level.size + random.randint(-50, 50))
-            
-            if new_size == 0:
-                del market.no_bids[price]
-                delta_data = [price, 0]
-            else:
-                market.no_bids[price] = MockOrderbookLevel(price=price, size=new_size)
-                delta_data = [price, new_size]
-            
-            contract_type = "no"
-            side = "bids"
-            
-        elif not is_yes and not is_bid and market.no_asks:
-            price = random.choice(list(market.no_asks.keys()))
-            old_level = market.no_asks[price]
-            new_size = max(0, old_level.size + random.randint(-50, 50))
-            
-            if new_size == 0:
-                del market.no_asks[price]
-                delta_data = [price, 0]
-            else:
-                market.no_asks[price] = MockOrderbookLevel(price=price, size=new_size)
-                delta_data = [price, new_size]
-            
-            contract_type = "no"
-            side = "asks"
         else:
-            return  # Skip if no levels available
-        
-        # Create delta message in exact Kalshi format
+            # Add a new random price level
+            price = str(random.randint(1, 99))
+            size = random.randint(50, 200)
+            book[price] = MockOrderbookLevel(price=price, size=size)
+            delta_data = [price, size]
+
+        # Create delta message in Kalshi format (flat yes/no, no bids/asks distinction)
         delta_msg = {
             "type": "orderbook_delta",
             "sid": sid,
             "seq": market.last_seq,
             "msg": {
                 "market_ticker": market.market_ticker,
-                contract_type: {side: [delta_data]},
+                contract_type: [delta_data],
                 "ts": int(time.time())
             }
         }
-        
+
         # Send to all subscribed clients
         for client in clients:
             try:
                 await client.send(json.dumps(delta_msg))
-                logger.debug(f"Sent orderbook_delta for sid={sid}: {contract_type} {side} {delta_data}")
+                logger.debug(f"Sent orderbook_delta for sid={sid}: {contract_type} {delta_data}")
             except Exception as e:
                 logger.error(f"Error sending orderbook delta: {e}")
     

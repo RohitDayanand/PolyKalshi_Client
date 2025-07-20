@@ -20,7 +20,7 @@ import websockets
 from websockets.server import WebSocketServerProtocol
 from datetime import datetime, timedelta
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger()
 
 @dataclass
 class MockOrderbookLevel:
@@ -131,7 +131,7 @@ class MockPolymarketServer:
     async def start(self):
         """Start the mock WebSocket server"""
         logger.info(f"Starting MockPolymarketServer on {self.host}:{self.port}")
-        
+        logger.info(f"checkign if self is bounded, {self._handle_connection} ")
         self.server = await websockets.serve(
             self._handle_connection,
             self.host,
@@ -139,10 +139,10 @@ class MockPolymarketServer:
             ping_interval=30,
             ping_timeout=10
         )
-        
+
         # Start background task for periodic market updates
         self.update_task = asyncio.create_task(self._periodic_updates())
-        
+
         logger.info(f"MockPolymarketServer started successfully")
         return self.server
     
@@ -163,7 +163,8 @@ class MockPolymarketServer:
         
         logger.info("MockPolymarketServer stopped")
     
-    async def _handle_connection(self, websocket: WebSocketServerProtocol, path: str):
+    #what is the path var
+    async def _handle_connection(self, websocket: WebSocketServerProtocol):
         """Handle new WebSocket connection"""
         client_info = f"{websocket.remote_address[0]}:{websocket.remote_address[1]}"
         logger.info(f"New connection from {client_info}")

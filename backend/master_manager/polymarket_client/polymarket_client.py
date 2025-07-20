@@ -100,20 +100,16 @@ class PolymarketClient:
         self.on_error_callback = callback
 
     def _setup_debug_logger(self):
-        """Set up dedicated debug logger for WebSocket messages."""
+        """No-op: use main logger for debug messages."""
+        pass
 
     def _log_debug(self, direction: str, message: str):
-        """Log debug message to file if debug logging is enabled."""
+        """Log debug message using the main logger if debug logging is enabled."""
         if not self.debug_websocket_logging:
             return
-        
         timestamp = datetime.now().isoformat()
-        try:
-            with open(self.debug_log_file, 'a') as f:
-                f.write(f"[{timestamp}] {direction}: {message}\n")
-        except Exception as e:
-            logger.error(f"Failed to write to debug log: {e}")
-
+        logger.debug(f"[WS-DEBUG] [{timestamp}] {direction}: {message}")
+        
     async def subscribe(self):
         if not self.is_connected or not self.websocket:
             logger.error("WebSocket not connected. Cannot subscribe.")
