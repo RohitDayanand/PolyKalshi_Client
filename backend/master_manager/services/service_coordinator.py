@@ -58,38 +58,31 @@ class ServiceCoordinator:
     def _setup_event_subscriptions(self):
         """Set up event subscriptions for cross-cutting services."""
         
-        # Arbitrage monitoring - subscribe to orderbook updates from both platforms
-        self.event_bus.subscribe('kalshi.orderbook_update', self._handle_kalshi_orderbook_update)
-        self.event_bus.subscribe('polymarket.orderbook_update', self._handle_polymarket_orderbook_update)
+        # Note: ArbitrageManager now handles platform updates through its own event subscriptions
+        # (kalshi.ticker_update and polymarket.price_change events)
         
         # Error handling
         self.event_bus.subscribe('kalshi.error', self._handle_platform_error)
         self.event_bus.subscribe('polymarket.error', self._handle_platform_error)
         
-        # Set up arbitrage alert callback
-        self.arbitrage_service.set_arbitrage_alert_callback(self._handle_arbitrage_alert)
+        # Subscribe to arbitrage alerts from the arbitrage service
+        self.event_bus.subscribe('arbitrage.alert', self._handle_arbitrage_alert)
         
         logger.info("ServiceCoordinator event subscriptions set up")
     
-    async def start_services(self, kalshi_processor=None, polymarket_processor=None):
+    async def start_services(self):
         """
         Start cross-cutting services.
         
-        Args:
-            kalshi_processor: Kalshi message processor for arbitrage
-            polymarket_processor: Polymarket message processor for arbitrage
+        Note: ArbitrageManager now handles platform data through event bus subscriptions.
         """
         if self.services_started:
             logger.info("ServiceCoordinator services already started")
             return
         
         try:
-            # Set up arbitrage service with processors if provided
-            if kalshi_processor and polymarket_processor:
-                self.arbitrage_service.set_processors(kalshi_processor, polymarket_processor)
-                logger.info("Arbitrage service configured with processors")
-            else:
-                logger.warning("No processors provided to ServiceCoordinator - arbitrage may not function")
+            # Note: ArbitrageManager now handles platform data through event bus subscriptions
+            # No need to set processors directly
             
             self.services_started = True
             logger.info("✅ ServiceCoordinator services started successfully")
@@ -110,39 +103,6 @@ class ServiceCoordinator:
         except Exception as e:
             logger.error(f"Error stopping ServiceCoordinator services: {e}")
     
-    async def _handle_kalshi_orderbook_update(self, event_data: Dict[str, Any]):
-        """Handle Kalshi orderbook updates for arbitrage detection."""
-        try:
-            sid = event_data.get('sid')
-            orderbook_state = event_data.get('orderbook_state')
-            
-            if sid is not None and orderbook_state:
-                await self.arbitrage_service.handle_kalshi_orderbook_update(sid, orderbook_state)
-                self.stats["kalshi_orderbook_updates"] += 1
-                logger.debug(f"Processed Kalshi orderbook update for sid={sid}")
-            else:
-                logger.warning(f"Invalid Kalshi orderbook update event: {event_data}")
-                
-        except Exception as e:
-            self.stats["service_errors"] += 1
-            logger.error(f"Error handling Kalshi orderbook update: {e}")
-    
-    async def _handle_polymarket_orderbook_update(self, event_data: Dict[str, Any]):
-        """Handle Polymarket orderbook updates for arbitrage detection."""
-        try:
-            asset_id = event_data.get('asset_id')
-            orderbook_state = event_data.get('orderbook_state')
-            
-            if asset_id and orderbook_state:
-                await self.arbitrage_service.handle_polymarket_orderbook_update(asset_id, orderbook_state)
-                self.stats["polymarket_orderbook_updates"] += 1
-                logger.debug(f"Processed Polymarket orderbook update for asset_id={asset_id}")
-            else:
-                logger.warning(f"Invalid Polymarket orderbook update event: {event_data}")
-                
-        except Exception as e:
-            self.stats["service_errors"] += 1
-            logger.error(f"Error handling Polymarket orderbook update: {e}")
     
     async def _handle_platform_error(self, event_data: Dict[str, Any]):
         """Handle platform errors for logging and monitoring."""

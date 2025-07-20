@@ -16,6 +16,7 @@ import json
 import time
 import threading
 import logging
+import os
 from datetime import datetime, timedelta
 from typing import Optional, Callable, Dict, List, Any
 from pathlib import Path
@@ -37,7 +38,7 @@ class PolymarketClientConfig:
     def __init__(
         self,
         slug: str,
-        ws_url: str = "wss://ws-subscriptions-clob.polymarket.com/ws/market",
+        ws_url: Optional[str] = None,
         ping_interval: int = 10,
         reconnect_interval: int = 5,
         log_level: str = "INFO",
@@ -46,7 +47,12 @@ class PolymarketClientConfig:
         debug_log_file: str = "polymarket_debug.txt"
     ):
         self.slug = slug
-        self.ws_url = ws_url
+        # Dynamic URL support: env var > parameter > default
+        self.ws_url = (
+            os.getenv('POLYMARKET_WS_URL') or 
+            ws_url or 
+            "wss://ws-subscriptions-clob.polymarket.com/ws/market"
+        )
         self.ping_interval = ping_interval
         self.reconnect_interval = reconnect_interval
         self.log_level = log_level

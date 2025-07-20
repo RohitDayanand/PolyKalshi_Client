@@ -13,8 +13,8 @@ import os
 from datetime import datetime
 
 # Import from the proper module structure
-from master_manager.kalshi_client.message_processor import KalshiMessageProcessor
-from master_manager.kalshi_client.models import OrderbookState
+from backend.master_manager.kalshi_client.message_processor import KalshiMessageProcessor
+from backend.master_manager.kalshi_client.models import OrderbookState
 
 
 async def test_real_kalshi_snapshot():

@@ -51,6 +51,7 @@ from .polymarket_client.polymarket_ticker_publisher import PolymarketTickerPubli
 from .kalshi_client.kalshi_ticker_publisher import KalshiTickerPublisher
 from .utils.tglobal_config import PUBLISH_INTERVAL_SECONDS
 from .arbitrage_manager import ArbitrageManager
+from .events.event_bus import EventBus, global_event_bus
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -74,8 +75,8 @@ class MarketsManager:
         self.kalshi_queue = KalshiQueue(max_queue_size=1000)
         self.polymarket_queue = PolymarketQueue(max_queue_size=1000)
         
-        # Initialize Kalshi message processor
-        self.kalshi_processor = KalshiMessageProcessor()
+        # Initialize Kalshi message processor with EventBus
+        self.kalshi_processor = KalshiMessageProcessor(event_bus=self.event_bus)
         
         # Initialize Polymarket message processor
         self.polymarket_processor = PolymarketMessageProcessor()
@@ -104,9 +105,11 @@ class MarketsManager:
             publish_interval=PUBLISH_INTERVAL_SECONDS
         )
         
-        # Initialize ArbitrageManager
-        self.arbitrage_manager = ArbitrageManager(min_spread_threshold=0.02)
-        self.arbitrage_manager.set_processors(self.kalshi_processor, self.polymarket_processor)
+        # Initialize EventBus for component communication
+        self.event_bus = global_event_bus
+        
+        # Initialize ArbitrageManager with EventBus pattern
+        self.arbitrage_manager = ArbitrageManager(min_spread_threshold=0.02, event_bus=self.event_bus)
         
         # Set up processor callbacks
         self.kalshi_processor.set_error_callback(self._handle_kalshi_error)
@@ -466,8 +469,7 @@ class MarketsManager:
     async def _handle_kalshi_orderbook_update(self, sid: int, orderbook_state) -> None:
         """Handle orderbook updates from Kalshi message processor."""
         logger.debug(f"Orderbook updated for sid={sid}, ticker={orderbook_state.market_ticker}")
-        # Trigger arbitrage detection
-        await self.arbitrage_manager.handle_kalshi_orderbook_update(sid, orderbook_state)
+        # Note: Arbitrage detection now handled via EventBus subscriptions in ArbitrageManager
     
     async def _handle_polymarket_error(self, error_info: Dict[str, Any]) -> None:
         """Handle errors from Polymarket message processor."""
@@ -477,8 +479,7 @@ class MarketsManager:
     async def _handle_polymarket_orderbook_update(self, asset_id: str, orderbook_state) -> None:
         """Handle orderbook updates from Polymarket message processor."""
         logger.debug(f"Orderbook updated for asset_id={asset_id}, market={orderbook_state.market}")
-        # Trigger arbitrage detection
-        await self.arbitrage_manager.handle_polymarket_orderbook_update(asset_id, orderbook_state)
+        # Note: Arbitrage detection now handled via EventBus subscriptions in ArbitrageManager
     
     def get_kalshi_orderbook(self, sid: int):
         """Get current Kalshi orderbook state for a market."""
@@ -541,9 +542,9 @@ class MarketsManager:
         """Remove a market pair from arbitrage monitoring."""
         return self.arbitrage_manager.remove_market_pair(market_pair)
     
-    def set_arbitrage_alert_callback(self, callback):
-        """Set callback for arbitrage alert notifications."""
-        return self.arbitrage_manager.set_arbitrage_alert_callback(callback)
+    def subscribe_to_arbitrage_alerts(self, callback):
+        """Subscribe to arbitrage alert events via EventBus."""
+        return self.event_bus.subscribe('arbitrage.alert', callback)
     
     async def check_arbitrage_for_pair(self, market_pair: str):
         """Check arbitrage opportunities for a specific market pair."""

@@ -1,3 +1,8 @@
+# DEPRECATED: This file is deprecated. Message processing is now handled by:
+# - kalshi_message_processor.py for Kalshi orderbook_delta, error, etc.
+# - polymarket_message_processor.py for Polymarket messages
+# This was the old general message processor before platform-specific refactoring.
+
 import logging
 import json
 from datetime import datetime

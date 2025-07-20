@@ -437,7 +437,7 @@ async def subscribe_to_market(request: MarketSubscriptionRequest):
     
     This endpoint:
     1. Validates the platform and market identifier format
-    2. Establishes backend connection via MarketsManager 
+    2. Establishes backend connection via lightweight markets coordinator
     3. Returns standardized market_id for WebSocket subscription
     4. Tracks connection state for status monitoring
     

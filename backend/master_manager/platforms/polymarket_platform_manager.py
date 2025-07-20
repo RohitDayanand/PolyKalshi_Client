@@ -211,9 +211,10 @@ class PolymarketPlatformManager:
             # Check for debug logging environment variable
             debug_logging = os.getenv('POLYMARKET_DEBUG_LOGGING', 'false').lower() == 'true'
             
-            # Create client config with token_ids
+            # Create client config with token_ids (URL can be overridden via POLYMARKET_WS_URL env var)
             config = PolymarketClientConfig(
                 slug="default-polymarket-subscription",
+                ws_url=None,  # Will use env var or default
                 ping_interval=30,
                 log_level="INFO",
                 token_ids=token_ids,

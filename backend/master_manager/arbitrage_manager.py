@@ -1,85 +1,157 @@
 """
-ArbitrageManager - Detects and streams arbitrage opportunities between Kalshi and Polymarket.
+ArbitrageManager - Lifecycle management for arbitrage detection between Kalshi and Polymarket.
 
-This manager monitors orderbook states from both platforms and calculates spreads to identify 
-arbitrage opportunities. It emits real-time arbitrage alerts to the frontend.
+This manager handles market pair registration, coordination, and delegates core arbitrage
+detection logic to ArbitrageDetector. It provides a clean interface for managing
+arbitrage detection across multiple market pairs.
 
 Key Features:
-- Real-time arbitrage detection across platforms
-- Configurable minimum spread threshold
-- Streaming arbitrage alerts to frontend
-- Market pair matching and validation
+- Market pair lifecycle management (add/remove pairs)
+- Coordination between ArbitrageDetector and market pairs
+- Statistics and monitoring
+- EventBus integration for notifications
 """
 
 import logging
 import asyncio
 from typing import Dict, Any, Optional, List, Callable
 from datetime import datetime
-from dataclasses import dataclass
 
-# Import streaming function
-try:
-    from backend.websocket_server import publish_arbitrage_alert
-except ImportError:
-    # Fallback for development/testing
-    async def publish_arbitrage_alert(alert_data: dict):
-        pass
-
-from .kalshi_client.models.orderbook_state import OrderbookState as KalshiOrderbookState
-from .polymarket_client.models.orderbook_state import PolymarketOrderbookState
+from .events.event_bus import EventBus, global_event_bus
+from .arbitrage_detector import ArbitrageDetector, ArbitrageAlert
 
 logger = logging.getLogger(__name__)
 
-@dataclass
-class ArbitrageAlert:
-    """Data class representing an arbitrage opportunity."""
-    market_pair: str
-    timestamp: str
-    spread: float
-    direction: str  # "kalshi_to_polymarket" or "polymarket_to_kalshi"
-    side: str  # "yes" or "no"
-    kalshi_price: Optional[float]
-    polymarket_price: Optional[float]
-    kalshi_market_id: Optional[int]
-    polymarket_asset_id: Optional[str]
-    confidence: float = 1.0  # Future: confidence score for the arbitrage opportunity
-
 class ArbitrageManager:
     """
-    Manages arbitrage detection between Kalshi and Polymarket orderbooks.
+    Lifecycle management for arbitrage detection between Kalshi and Polymarket.
     
-    Monitors orderbook updates from both platforms and calculates spreads to identify
-    arbitrage opportunities. Emits real-time alerts when opportunities are found.
+    Handles market pair registration and coordinates with ArbitrageDetector for
+    the actual arbitrage detection logic. Provides a clean interface for managing
+    arbitrage detection across multiple market pairs.
     """
     
-    def __init__(self, min_spread_threshold: float = 0.02):
+    def __init__(self, min_spread_threshold: float = 0.02, event_bus: Optional[EventBus] = None):
         """
         Initialize ArbitrageManager.
         
         Args:
             min_spread_threshold: Minimum spread required to trigger arbitrage alert (default: 2%)
+            event_bus: EventBus instance (uses global_event_bus if None)
         """
-        self.min_spread_threshold = min_spread_threshold
+        self.event_bus = event_bus or global_event_bus
         self.market_pairs: Dict[str, Dict[str, Any]] = {}  # market_pair -> {kalshi_sid, polymarket_yes_asset_id, polymarket_no_asset_id}
-        self.arbitrage_alert_callback: Optional[Callable[[ArbitrageAlert], None]] = None
         self.last_alerts: Dict[str, ArbitrageAlert] = {}  # market_pair -> last_alert (for deduplication)
         
-        # References to market managers (will be injected)
-        self.kalshi_processor = None
-        self.polymarket_processor = None
+        # Initialize the core arbitrage detector
+        self.detector = ArbitrageDetector(self.event_bus, min_spread_threshold)
+        
+        # Subscribe to detector notifications about price updates
+        self._subscribe_to_detector_events()
         
         logger.info(f"ArbitrageManager initialized with min_spread_threshold={min_spread_threshold}")
     
-    def set_processors(self, kalshi_processor, polymarket_processor):
-        """Inject processor references from MarketsManager."""
-        self.kalshi_processor = kalshi_processor
-        self.polymarket_processor = polymarket_processor
-        logger.info("ArbitrageManager processors set")
+    def _subscribe_to_detector_events(self):
+        """Subscribe to ArbitrageDetector update notifications."""
+        # Subscribe to notifications from detector about platform updates
+        self.event_bus.subscribe('arbitrage.kalshi_updated', self._handle_kalshi_updated)
+        self.event_bus.subscribe('arbitrage.polymarket_updated', self._handle_polymarket_updated)
+        
+        logger.info("ArbitrageManager subscribed to detector update events")
     
-    def set_arbitrage_alert_callback(self, callback: Callable[[ArbitrageAlert], None]):
-        """Set callback for arbitrage alert notifications."""
-        self.arbitrage_alert_callback = callback
-        logger.info("ArbitrageManager arbitrage alert callback set")
+    async def _handle_kalshi_updated(self, event_data: Dict[str, Any]):
+        """
+        Handle notifications from ArbitrageDetector that Kalshi has updated.
+        Find relevant market pairs and trigger arbitrage checks.
+        """
+        try:
+            sid = event_data.get('sid')
+            ticker_state = event_data.get('ticker_state')
+            
+            if not sid or not ticker_state:
+                logger.warning("Invalid arbitrage.kalshi_updated event data")
+                return
+            
+            # Find all market pairs that involve this Kalshi market
+            relevant_pairs = [
+                pair_name for pair_name, config in self.market_pairs.items()
+                if config.get('kalshi_sid') == sid
+            ]
+            
+            for pair_name in relevant_pairs:
+                await self._check_arbitrage_for_pair(pair_name)
+            
+        except Exception as e:
+            logger.error(f"Error handling Kalshi update notification: {e}")
+    
+    async def _handle_polymarket_updated(self, event_data: Dict[str, Any]):
+        """
+        Handle notifications from ArbitrageDetector that Polymarket has updated.
+        Find relevant market pairs and trigger arbitrage checks.
+        """
+        try:
+            asset_id = event_data.get('asset_id')
+            orderbook_state = event_data.get('orderbook_state')
+            
+            if not asset_id or not orderbook_state:
+                logger.warning("Invalid arbitrage.polymarket_updated event data")
+                return
+            
+            # Find all market pairs that involve this Polymarket asset
+            relevant_pairs = [
+                pair_name for pair_name, config in self.market_pairs.items()
+                if config.get('polymarket_yes_asset_id') == asset_id or 
+                   config.get('polymarket_no_asset_id') == asset_id
+            ]
+            
+            for pair_name in relevant_pairs:
+                await self._check_arbitrage_for_pair(pair_name)
+            
+        except Exception as e:
+            logger.error(f"Error handling Polymarket update notification: {e}")
+    
+    async def _check_arbitrage_for_pair(self, pair_name: str):
+        """
+        Check arbitrage for a specific market pair by delegating to ArbitrageDetector.
+        """
+        if pair_name not in self.market_pairs:
+            logger.warning(f"Market pair {pair_name} not registered")
+            return
+        
+        pair_config = self.market_pairs[pair_name]
+        kalshi_sid = pair_config['kalshi_sid']
+        poly_yes_asset_id = pair_config['polymarket_yes_asset_id']
+        poly_no_asset_id = pair_config['polymarket_no_asset_id']
+        
+        # Delegate to detector for actual arbitrage calculation
+        alerts = await self.detector.check_arbitrage_for_pair(
+            pair_name, kalshi_sid, poly_yes_asset_id, poly_no_asset_id
+        )
+        
+        # Process and publish alerts
+        for alert in alerts:
+            await self._process_arbitrage_alert(alert)
+    
+    async def _process_arbitrage_alert(self, alert: ArbitrageAlert):
+        """
+        Process an arbitrage alert (deduplication, filtering, etc.) and publish.
+        """
+        # Simple deduplication based on market pair and recent alerts
+        pair_name = alert.market_pair
+        
+        # Check if we recently alerted for this pair
+        if pair_name in self.last_alerts:
+            last_alert = self.last_alerts[pair_name]
+            # Only alert again if spread has significantly changed (>10% difference)
+            if abs(alert.spread - last_alert.spread) < (last_alert.spread * 0.1):
+                logger.debug(f"Skipping similar arbitrage alert for {pair_name}")
+                return
+        
+        # Update last alert and publish
+        self.last_alerts[pair_name] = alert
+        await self.detector.publish_arbitrage_alert(alert)
+    
+    # === LIFECYCLE MANAGEMENT METHODS ===
     
     def add_market_pair(self, market_pair: str, kalshi_sid: int, polymarket_yes_asset_id: str, polymarket_no_asset_id: str):
         """
@@ -258,77 +330,6 @@ class ArbitrageManager:
         
         return all_alerts
     
-    async def handle_kalshi_orderbook_update(self, sid: int, orderbook_state: KalshiOrderbookState):
-        """
-        Handle Kalshi orderbook updates and check for arbitrage opportunities.
-        
-        Args:
-            sid: Kalshi market subscription ID
-            orderbook_state: Updated orderbook state
-        """
-        # Find market pairs that include this Kalshi market
-        relevant_pairs = [pair for pair, config in self.market_pairs.items() 
-                         if config['kalshi_sid'] == sid]
-        
-        for market_pair in relevant_pairs:
-            try:
-                alerts = await self.check_arbitrage_for_pair(market_pair)
-                for alert in alerts:
-                    await self._emit_arbitrage_alert(alert)
-            except Exception as e:
-                logger.error(f"Error checking arbitrage for {market_pair} after Kalshi update: {e}")
-    
-    async def handle_polymarket_orderbook_update(self, asset_id: str, orderbook_state: PolymarketOrderbookState):
-        """
-        Handle Polymarket orderbook updates and check for arbitrage opportunities.
-        
-        Args:
-            asset_id: Polymarket asset ID
-            orderbook_state: Updated orderbook state
-        """
-        # Find market pairs that include this Polymarket asset
-        relevant_pairs = [pair for pair, config in self.market_pairs.items() 
-                         if config['polymarket_yes_asset_id'] == asset_id or 
-                            config['polymarket_no_asset_id'] == asset_id]
-        
-        for market_pair in relevant_pairs:
-            try:
-                alerts = await self.check_arbitrage_for_pair(market_pair)
-                for alert in alerts:
-                    await self._emit_arbitrage_alert(alert)
-            except Exception as e:
-                logger.error(f"Error checking arbitrage for {market_pair} after Polymarket update: {e}")
-    
-    async def _emit_arbitrage_alert(self, alert: ArbitrageAlert):
-        """
-        Emit arbitrage alert with deduplication logic.
-        
-        Args:
-            alert: Arbitrage alert to emit
-        """
-        # Simple deduplication: only emit if spread has changed significantly
-        last_alert = self.last_alerts.get(alert.market_pair)
-        if last_alert and abs(alert.spread - last_alert.spread) < 0.005:  # 0.5% threshold
-            return
-        
-        self.last_alerts[alert.market_pair] = alert
-        
-        # Stream to frontend via WebSocket
-        try:
-            alert_data = self.to_dict(alert)
-            await publish_arbitrage_alert(alert_data)
-        except Exception as e:
-            logger.error(f"Error publishing arbitrage alert to WebSocket: {e}")
-        
-        # Also call custom callback if set
-        if self.arbitrage_alert_callback:
-            try:
-                if asyncio.iscoroutinefunction(self.arbitrage_alert_callback):
-                    await self.arbitrage_alert_callback(alert)
-                else:
-                    self.arbitrage_alert_callback(alert)
-            except Exception as e:
-                logger.error(f"Error in arbitrage alert callback: {e}")
     
     def get_stats(self) -> Dict[str, Any]:
         """Get arbitrage manager statistics."""
@@ -337,20 +338,7 @@ class ArbitrageManager:
             'market_pairs': list(self.market_pairs.keys()),
             'min_spread_threshold': self.min_spread_threshold,
             'last_alerts_count': len(self.last_alerts),
-            'status': 'active' if self.kalshi_processor and self.polymarket_processor else 'inactive'
+            'detector_stats': self.detector.get_stats(),
+            'status': 'active'
         }
     
-    def to_dict(self, alert: ArbitrageAlert) -> Dict[str, Any]:
-        """Convert ArbitrageAlert to dictionary for JSON serialization."""
-        return {
-            'market_pair': alert.market_pair,
-            'timestamp': alert.timestamp,
-            'spread': alert.spread,
-            'direction': alert.direction,
-            'side': alert.side,
-            'kalshi_price': alert.kalshi_price,
-            'polymarket_price': alert.polymarket_price,
-            'kalshi_market_id': alert.kalshi_market_id,
-            'polymarket_asset_id': alert.polymarket_asset_id,
-            'confidence': alert.confidence
-        }
