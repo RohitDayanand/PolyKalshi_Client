@@ -96,3 +96,6 @@ Thumbs.db
 .claude
 .claude/
 CLAUDE.md
+
+#Test folders
+untracked_demo/*

@@ -86,6 +86,11 @@ class KalshiClient:
         self.on_error_callback = callback
 
     def _get_ws_url(self) -> str:
+        # Use custom URL if provided (for testing/mocking)
+        if self.config.custom_ws_url:
+            return self.config.custom_ws_url
+        
+        # Default environment-based URLs
         if self.config.environment == Environment.DEMO:
             return "wss://demo-api.kalshi.co/trade-api/ws/v2"
         elif self.config.environment == Environment.PROD:

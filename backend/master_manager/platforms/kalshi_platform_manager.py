@@ -52,7 +52,7 @@ class KalshiPlatformManager:
         
         # Initialize Kalshi-specific stack
         self.queue = KalshiQueue(max_queue_size=1000)
-        self.processor = KalshiMessageProcessor()
+        self.processor = KalshiMessageProcessor(event_bus=event_bus)
         self.candlestick_manager = CandlestickManager()  # Kalshi-only component
         
         # Initialize ticker publisher with candlestick integration
@@ -175,13 +175,14 @@ class KalshiPlatformManager:
         self.kalshi_sid = hash(ticker) % 1000000  # Simple hash for SID
         
         try:
-            # Create client config
+            # Create client config (URL can be overridden via KALSHI_WS_URL env var)
             config = KalshiClientConfig(
                 ticker=ticker,
                 channel=self.channel,
                 environment=Environment.PROD,
                 ping_interval=30,
-                log_level="INFO"
+                log_level="INFO",
+                custom_ws_url=None  # Will use env var or default
             )
             
             client = KalshiClient(config)

@@ -18,7 +18,8 @@ class KalshiClientConfig:
         environment: Environment = Environment.DEMO,
         ping_interval: int = 30,
         reconnect_interval: int = 5,
-        log_level: str = "INFO"
+        log_level: str = "INFO",
+        custom_ws_url: Optional[str] = None
     ):
         self.ticker = ticker
         self.channel = channel
@@ -28,6 +29,8 @@ class KalshiClientConfig:
         self.ping_interval = ping_interval
         self.reconnect_interval = reconnect_interval
         self.log_level = log_level
+        # Dynamic URL support: env var > parameter > default based on environment
+        self.custom_ws_url = os.getenv('KALSHI_WS_URL') or custom_ws_url
         self.private_key = self._load_private_key()
 
     def _get_default_key_path(self) -> str:

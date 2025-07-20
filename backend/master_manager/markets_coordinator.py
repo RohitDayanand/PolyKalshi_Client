@@ -7,10 +7,10 @@ while maintaining backward compatibility with the existing interface.
 import logging
 from typing import Dict, Any, Optional
 
-from .events.event_bus import EventBus, global_event_bus
-from .platforms.kalshi_platform_manager import KalshiPlatformManager
-from .platforms.polymarket_platform_manager import PolymarketPlatformManager
-from .services.service_coordinator import ServiceCoordinator
+from backend.master_manager.events.event_bus import EventBus, global_event_bus
+from backend.master_manager.platforms.kalshi_platform_manager import KalshiPlatformManager
+from backend.master_manager.platforms.polymarket_platform_manager import PolymarketPlatformManager
+from backend.master_manager.services.service_coordinator import ServiceCoordinator
 
 logger = logging.getLogger(__name__)
 
@@ -104,11 +104,8 @@ class MarketsCoordinator:
             await self.kalshi_platform.start_async_components()
             await self.polymarket_platform.start_async_components()
             
-            # Start service coordinator with processors
-            await self.service_coordinator.start_services(
-                kalshi_processor=self.kalshi_platform.processor,
-                polymarket_processor=self.polymarket_platform.processor
-            )
+            # Start service coordinator
+            await self.service_coordinator.start_services()
             
             self._async_started = True
             logger.info("✅ MarketsCoordinator async components started successfully")
@@ -267,6 +264,7 @@ class MarketsCoordinator:
         # Note: In the new architecture, callbacks are handled via events
         # This method is kept for compatibility but doesn't do anything
         # since alerts are automatically published via events
+        _ = callback  # Mark as used to avoid warning
         logger.warning("set_arbitrage_alert_callback is deprecated - alerts are published via events")
         return True
     

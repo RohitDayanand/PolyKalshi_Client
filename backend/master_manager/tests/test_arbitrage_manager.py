@@ -8,11 +8,11 @@ import os
 # Add the backend directory to Python path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 
-from master_manager.arbitrage_manager import ArbitrageManager, ArbitrageAlert
-from master_manager.kalshi_client.models.orderbook_state import OrderbookState as KalshiOrderbookState
-from master_manager.polymarket_client.models.orderbook_state import PolymarketOrderbookState
-from master_manager.kalshi_client.models.orderbook_level import OrderbookLevel
-from master_manager.polymarket_client.models.orderbook_level import PolymarketOrderbookLevel
+from backend.master_manager.arbitrage_manager import ArbitrageManager, ArbitrageAlert
+from backend.master_manager.kalshi_client.models.orderbook_state import OrderbookState as KalshiOrderbookState
+from backend.master_manager.polymarket_client.models.orderbook_state import PolymarketOrderbookState
+from backend.master_manager.kalshi_client.models.orderbook_level import OrderbookLevel
+from backend.master_manager.polymarket_client.models.orderbook_level import PolymarketOrderbookLevel
 from datetime import datetime
 import logging
 

@@ -18,6 +18,8 @@ from typing import Dict, Any, Optional, Callable
 from datetime import datetime
 
 from .models.orderbook_state import OrderbookState
+from .models.ticker_state import TickerState
+from ..events.event_bus import EventBus, global_event_bus
 
 logger = logging.getLogger(__name__)
 
@@ -29,10 +31,15 @@ class KalshiMessageProcessor:
     Maintains separate orderbook state per market using sid.
     """
     
-    def __init__(self, start_logging: bool = False):
+    def __init__(self, start_logging: bool = False, event_bus: Optional[EventBus] = None):
         self.orderbooks: Dict[int, OrderbookState] = {}  # sid -> OrderbookState
+        self.ticker_states: Dict[int, TickerState] = {}  # sid -> TickerState
         self.error_callback: Optional[Callable[[Dict[str, Any]], None]] = None
         self.orderbook_update_callback: Optional[Callable[[int, OrderbookState], None]] = None
+        self.ticker_update_callback: Optional[Callable[[int, TickerState], None]] = None
+        
+        # EventBus integration for publishing events
+        self.event_bus = event_bus or global_event_bus
         
         # Start periodic logging task only if requested and event loop is running
         self.logging_task: Optional[asyncio.Task] = None
@@ -54,6 +61,11 @@ class KalshiMessageProcessor:
         """Set callback for orderbook update notifications."""
         self.orderbook_update_callback = callback
         logger.info("Kalshi orderbook update callback set")
+    
+    def set_ticker_update_callback(self, callback: Callable[[int, TickerState], None]) -> None:
+        """Set callback for ticker update notifications."""
+        self.ticker_update_callback = callback
+        logger.info("Kalshi ticker update callback set")
     
     def start_periodic_logging(self):
         """Start background task for periodic orderbook state logging."""
@@ -80,14 +92,18 @@ class KalshiMessageProcessor:
                 logger.error(f"Error in periodic logging loop: {e}")
     
     async def _log_orderbook_state(self):
-        """Log current orderbook state for debugging bid/ask calculations."""
+        """Log current orderbook and ticker state for debugging bid/ask calculations."""
         try:
-            if not self.orderbooks:
-                logger.info("🔍 ORDERBOOK DEBUG: No active Kalshi markets")
+            total_markets = len(set(self.orderbooks.keys()) | set(self.ticker_states.keys()))
+            
+            if total_markets == 0:
+                logger.info("🔍 KALSHI DEBUG: No active Kalshi markets")
                 return
             
-            logger.info(f"🔍 ORDERBOOK DEBUG: {len(self.orderbooks)} active Kalshi markets")
+            logger.info(f"🔍 KALSHI DEBUG: {len(self.orderbooks)} orderbook markets, "
+                       f"{len(self.ticker_states)} ticker markets, {total_markets} total")
             
+            # Log orderbook markets
             for sid, orderbook in self.orderbooks.items():
                 # Log basic orderbook info
                 bid_count = len(orderbook.yes_contracts)
@@ -112,9 +128,25 @@ class KalshiMessageProcessor:
                 if orderbook.no_contracts:
                     sorted_asks = sorted(orderbook.no_contracts.items(), key=lambda x: float(x[0]))[:3]
                     logger.info(f"  - Top 3 asks: {[(price, level.size) for price, level in sorted_asks]}")
+            
+            # Log ticker markets (only those without orderbook data)
+            ticker_only_markets = set(self.ticker_states.keys()) - set(self.orderbooks.keys())
+            for sid in ticker_only_markets:
+                ticker_state = self.ticker_states[sid]
+                
+                logger.info(f"🔍 TICKER DEBUG: sid={sid}, ticker={ticker_state.market_ticker}")
+                logger.info(f"  - Price: {ticker_state.price} ({ticker_state.price_float})")
+                logger.info(f"  - Yes bid/ask: {ticker_state.yes_bid}/{ticker_state.yes_ask} "
+                           f"({ticker_state.yes_bid_float}/{ticker_state.yes_ask_float})")
+                logger.info(f"  - Volume: {ticker_state.volume}, Open interest: {ticker_state.open_interest}")
+                logger.info(f"  - Updates: {ticker_state.update_count}, Last: {ticker_state.last_update_time}")
+                
+                # Log ticker summary stats
+                ticker_summary = ticker_state.get_summary_stats()
+                logger.info(f"  - Ticker summary: {ticker_summary}")
         
         except Exception as e:
-            logger.error(f"Error logging orderbook state: {e}")
+            logger.error(f"Error logging market state: {e}")
     
     def cleanup(self):
         """Clean up resources, stop background tasks."""
@@ -152,6 +184,8 @@ class KalshiMessageProcessor:
                 await self._handle_orderbook_snapshot(message_data, metadata)
             elif message_type == 'orderbook_delta':
                 await self._handle_orderbook_delta(message_data, metadata)
+            elif message_type == 'ticker_v2':
+                await self._handle_ticker_update(message_data, metadata)
             else:
                 logger.info(f"❓ KALSHI MSG: Unknown message type: {message_type}")
                 
@@ -288,6 +322,90 @@ class KalshiMessageProcessor:
         except Exception as e:
             logger.error(f"Error applying orderbook_delta for sid={sid}: {e}")
     
+    async def _handle_ticker_update(self, message_data: Dict[str, Any], metadata: Dict[str, Any]) -> None:
+        """Handle ticker_v2 updates."""
+        sid = message_data.get('sid')
+        msg = message_data.get('msg', {})
+        market_ticker = msg.get('market_ticker')
+        
+        if sid is None:
+            logger.warning("No sid in ticker_v2 message")
+            return
+            
+        if not market_ticker:
+            logger.warning(f"No market_ticker in ticker_v2 message for sid={sid}")
+            return
+        
+        # Ensure we have ticker state for this market
+        if sid not in self.ticker_states:
+            # Create ticker state with async API initialization to get current market data
+            try:
+                self.ticker_states[sid] = await TickerState.create_with_api_init(
+                    sid=sid,
+                    market_ticker=market_ticker
+                )
+                logger.info(f"Created new ticker state with API init for sid={sid}, ticker={market_ticker}")
+            except Exception as e:
+                # Fallback to creation without API if initialization fails
+                logger.warning(f"API initialization failed for {market_ticker}, using defaults: {e}")
+                self.ticker_states[sid] = TickerState.create_without_api_init(
+                    sid=sid,
+                    market_ticker=market_ticker
+                )
+                logger.info(f"Created new ticker state without API init for sid={sid}, ticker={market_ticker}")
+        
+        ticker_state = self.ticker_states[sid]
+        
+        # Apply the ticker update and check for bid/ask changes
+        try:
+            # Store previous bid/ask for change detection
+            prev_yes_bid = ticker_state.yes_bid_float
+            prev_yes_ask = ticker_state.yes_ask_float
+            prev_no_bid = 1.0 - ticker_state.yes_ask_float if ticker_state.yes_ask_float is not None else None
+            prev_no_ask = 1.0 - ticker_state.yes_bid_float if ticker_state.yes_bid_float is not None else None
+            
+            ticker_state.apply_ticker_update(message_data)
+            logger.debug(f"Applied ticker_v2 update for sid={sid}, ticker={market_ticker}")
+            
+            # Check if bid/ask prices have changed
+            curr_yes_bid = ticker_state.yes_bid_float
+            curr_yes_ask = ticker_state.yes_ask_float
+            curr_no_bid = 1.0 - ticker_state.yes_ask_float if ticker_state.yes_ask_float is not None else None
+            curr_no_ask = 1.0 - ticker_state.yes_bid_float if ticker_state.yes_bid_float is not None else None
+            
+            bid_ask_changed = (
+                prev_yes_bid != curr_yes_bid or
+                prev_yes_ask != curr_yes_ask or
+                prev_no_bid != curr_no_bid or
+                prev_no_ask != curr_no_ask
+            )
+            
+            # Publish ticker update event via EventBus
+            try:
+                await self.event_bus.publish('kalshi.ticker_update', {
+                    'sid': sid,
+                    'ticker_state': ticker_state,
+                    'market_ticker': market_ticker,
+                    'bid_ask_changed': bid_ask_changed,
+                    'timestamp': datetime.now().isoformat()
+                })
+                logger.debug(f"Published kalshi.ticker_update event for sid={sid}, bid_ask_changed={bid_ask_changed}")
+            except Exception as e:
+                logger.error(f"Error publishing ticker update event: {e}")
+            
+            # Notify callback if set (legacy support)
+            if self.ticker_update_callback:
+                try:
+                    if asyncio.iscoroutinefunction(self.ticker_update_callback):
+                        await self.ticker_update_callback(sid, ticker_state)
+                    else:
+                        self.ticker_update_callback(sid, ticker_state)
+                except Exception as e:
+                    logger.error(f"Error in ticker update callback: {e}")
+                    
+        except Exception as e:
+            logger.error(f"Error applying ticker_v2 update for sid={sid}: {e}")
+    
     def get_orderbook(self, sid: int) -> Optional[OrderbookState]:
         """Get current orderbook state for a market."""
         return self.orderbooks.get(sid)
@@ -295,6 +413,14 @@ class KalshiMessageProcessor:
     def get_all_orderbooks(self) -> Dict[int, OrderbookState]:
         """Get all current orderbook states."""
         return self.orderbooks.copy()
+    
+    def get_ticker_state(self, sid: int) -> Optional[TickerState]:
+        """Get current ticker state for a market."""
+        return self.ticker_states.get(sid)
+    
+    def get_all_ticker_states(self) -> Dict[int, TickerState]:
+        """Get all current ticker states."""
+        return self.ticker_states.copy()
     
     def get_summary_stats(self, sid: int) -> Optional[Dict[str, Dict[str, Optional[float]]]]:
         """
@@ -319,22 +445,49 @@ class KalshiMessageProcessor:
     
     def get_all_summary_stats(self) -> Dict[int, Dict[str, Dict[str, Optional[float]]]]:
         """
-        Get summary stats for all active markets.
+        Get summary stats for all active markets (prioritizes orderbook data over ticker data).
         
         Returns:
             Dict mapping sid -> summary_stats for all markets
         """
         result = {}
+        
+        # First, use orderbook data (more detailed)
         for sid, orderbook in self.orderbooks.items():
             summary_stats = orderbook.calculate_yes_no_prices()
             result[sid] = summary_stats
         
+        # Then, add ticker data for markets that don't have orderbook data
+        for sid, ticker_state in self.ticker_states.items():
+            if sid not in result:
+                summary_stats = ticker_state.get_summary_stats()
+                result[sid] = summary_stats
+        
         return result
+    
+    def get_ticker_summary_stats(self, sid: int) -> Optional[Dict[str, Dict[str, Optional[float]]]]:
+        """
+        Get yes/no bid/ask/volume summary stats from ticker data for a specific market.
+        
+        Args:
+            sid: Market subscription ID
+            
+        Returns:
+            Dict in format compatible with orderbook summary stats or None if not found
+        """
+        ticker_state = self.get_ticker_state(sid)
+        if not ticker_state:
+            return None
+        
+        return ticker_state.get_summary_stats()
     
     def get_stats(self) -> Dict[str, Any]:
         """Get processor statistics."""
         return {
-            'active_markets': len(self.orderbooks),
-            'market_sids': list(self.orderbooks.keys()),
+            'active_orderbook_markets': len(self.orderbooks),
+            'active_ticker_markets': len(self.ticker_states),
+            'total_active_markets': len(set(self.orderbooks.keys()) | set(self.ticker_states.keys())),
+            'orderbook_sids': list(self.orderbooks.keys()),
+            'ticker_sids': list(self.ticker_states.keys()),
             'processor_status': 'running' 
             }
