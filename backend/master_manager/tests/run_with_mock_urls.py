@@ -214,10 +214,23 @@ async def main():
     set_mock_environment()
     
     # Configure logging
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    )
+    # Set up root logger manually so all submodules inherit handlers
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.DEBUG)
+
+    # Remove any default handlers
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+
+    file_handler = logging.FileHandler("websocket_debug.log")
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+    root_logger.addHandler(file_handler)
+
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.ERROR)
+    console_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+    root_logger.addHandler(console_handler)
     
     command = sys.argv[1] if len(sys.argv) > 1 else "help"
     

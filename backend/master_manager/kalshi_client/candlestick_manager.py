@@ -59,7 +59,7 @@ class CandlestickManager:
             if candle_key in self.candlesticks:
                 # Update existing candlestick
                 candlestick = self.candlesticks[candle_key]
-                candlestick.update(orderbook, current_time)
+                await candlestick.update(orderbook, current_time)
                 
                 logger.debug(f"🕯️ CANDLESTICK: Updated sid={sid}, minute={minute_timestamp}, "
                            f"updates={candlestick.update_count}")
@@ -69,7 +69,7 @@ class CandlestickManager:
                 
                 # Create new candlestick for this minute
                 candlestick = CandlestickState(timestamp_minute=minute_timestamp)
-                candlestick.create(orderbook, current_time)
+                await candlestick.create(orderbook, current_time)
                 self.candlesticks[candle_key] = candlestick
                 
                 logger.info(f"🕯️ CANDLESTICK: Created new candlestick sid={sid}, minute={minute_timestamp}")

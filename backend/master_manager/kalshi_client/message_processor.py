@@ -105,28 +105,31 @@ class KalshiMessageProcessor:
             
             # Log orderbook markets
             for sid, orderbook in self.orderbooks.items():
-                # Log basic orderbook info
-                bid_count = len(orderbook.yes_contracts)
-                ask_count = len(orderbook.no_contracts)
-                best_bid = orderbook.get_yes_market_bid()
-                best_ask = orderbook.get_no_market_bid()
+                # Get current snapshot for consistent read
+                snapshot = orderbook.get_snapshot()
                 
-                logger.info(f"🔍 ORDERBOOK DEBUG: sid={sid}, ticker={orderbook.market_ticker}")
+                # Log basic orderbook info
+                bid_count = len(snapshot.yes_contracts)
+                ask_count = len(snapshot.no_contracts)
+                best_bid = snapshot.get_yes_market_bid()
+                best_ask = snapshot.get_no_market_bid()
+                
+                logger.info(f"🔍 ORDERBOOK DEBUG: sid={sid}, ticker={snapshot.market_ticker}")
                 logger.info(f"  - Bids: {bid_count} levels, Best bid: {best_bid}")
                 logger.info(f"  - Asks: {ask_count} levels, Best ask: {best_ask}")
-                logger.info(f"  - Last seq: {orderbook.last_seq}, Last update: {orderbook.last_update_time}")
+                logger.info(f"  - Last seq: {snapshot.last_seq}, Last update: {snapshot.last_update_time}")
                 
                 # Log bid/ask calculation results
-                summary_stats = orderbook.calculate_yes_no_prices()
+                summary_stats = snapshot.calculate_yes_no_prices()
                 logger.info(f"  - Summary stats: {summary_stats}")
                 
                 # Log top 3 bid/ask levels for detailed debugging
-                if orderbook.yes_contracts:
-                    sorted_bids = sorted(orderbook.yes_contracts.items(), key=lambda x: float(x[0]), reverse=True)[:3]
+                if snapshot.yes_contracts:
+                    sorted_bids = sorted(snapshot.yes_contracts.items(), key=lambda x: float(x[0]), reverse=True)[:3]
                     logger.info(f"  - Top 3 bids: {[(price, level.size) for price, level in sorted_bids]}")
                 
-                if orderbook.no_contracts:
-                    sorted_asks = sorted(orderbook.no_contracts.items(), key=lambda x: float(x[0]))[:3]
+                if snapshot.no_contracts:
+                    sorted_asks = sorted(snapshot.no_contracts.items(), key=lambda x: float(x[0]))[:3]
                     logger.info(f"  - Top 3 asks: {[(price, level.size) for price, level in sorted_asks]}")
             
             # Log ticker markets (only those without orderbook data)
@@ -253,13 +256,14 @@ class KalshiMessageProcessor:
         current_time = datetime.now()
         
         # Check if this snapshot is newer than our last update
-        if orderbook.last_seq is not None and seq <= orderbook.last_seq:
-            logger.warning(f"Received old snapshot for sid={sid}: seq={seq} <= last_seq={orderbook.last_seq}")
+        current_snapshot = orderbook.get_snapshot()
+        if current_snapshot.last_seq is not None and seq <= current_snapshot.last_seq:
+            logger.warning(f"Received old snapshot for sid={sid}: seq={seq} <= last_seq={current_snapshot.last_seq}")
             return
         
         # Apply the snapshot
         try:
-            orderbook.apply_snapshot(message_data, seq, current_time)
+            await orderbook.apply_snapshot(message_data, seq, current_time)
             logger.info(f"Applied orderbook_snapshot for sid={sid}, seq={seq}")
             
             # Notify callback if set
@@ -296,8 +300,9 @@ class KalshiMessageProcessor:
         orderbook = self.orderbooks[sid]
         
         # Check sequence ordering
-        if orderbook.last_seq is not None:
-            expected_seq = orderbook.last_seq + 1
+        current_snapshot = orderbook.get_snapshot()
+        if current_snapshot.last_seq is not None:
+            expected_seq = current_snapshot.last_seq + 1
             if seq != expected_seq:
                 logger.error(f"Missing sequence for sid={sid}: expected {expected_seq}, got {seq}. "
                            f"Gap in orderbook updates detected!")
@@ -307,7 +312,7 @@ class KalshiMessageProcessor:
         # Apply the delta
         try:
             current_time = datetime.now()
-            orderbook.apply_delta(message_data, seq, current_time)
+            await orderbook.apply_delta(message_data, seq, current_time)
             
             # Notify callback if set
             if self.orderbook_update_callback:
@@ -441,7 +446,7 @@ class KalshiMessageProcessor:
         if not orderbook:
             return None
         
-        return orderbook.calculate_yes_no_prices()
+        return orderbook.get_snapshot().calculate_yes_no_prices()
     
     def get_all_summary_stats(self) -> Dict[int, Dict[str, Dict[str, Optional[float]]]]:
         """
@@ -454,7 +459,7 @@ class KalshiMessageProcessor:
         
         # First, use orderbook data (more detailed)
         for sid, orderbook in self.orderbooks.items():
-            summary_stats = orderbook.calculate_yes_no_prices()
+            summary_stats = orderbook.get_snapshot().calculate_yes_no_prices()
             result[sid] = summary_stats
         
         # Then, add ticker data for markets that don't have orderbook data
