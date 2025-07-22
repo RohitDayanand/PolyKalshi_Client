@@ -19,7 +19,15 @@ from datetime import datetime
 
 from .models import PolymarketOrderbookLevel, PolymarketOrderbookState
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger()
+
+# Add custom logging level for orderbook snapshots
+ORDERBOOK_SNAPSHOT_LEVEL = 25
+logging.addLevelName(ORDERBOOK_SNAPSHOT_LEVEL, "ORDERBOOK_SNAPSHOT")
+
+def orderbook_snapshot_log(message):
+    """Log orderbook snapshot updates at custom level for easy filtering."""
+    logger.log(ORDERBOOK_SNAPSHOT_LEVEL, message)
 
 class PolymarketMessageProcessor:
     """
@@ -120,15 +128,13 @@ class PolymarketMessageProcessor:
                 asset_id=asset_id,
                 market=market
             )
-            logger.info(f"Created new orderbook state for asset_id={asset_id}")
         
         orderbook = self.orderbooks[asset_id]
         current_time = datetime.now()
         
         # Apply the book snapshot (complete overwrite)
         try:
-            orderbook.apply_book_snapshot(message_data, current_time)
-            logger.info(f"[BOOK_SNAPSHOT] Applied book snapshot for asset_id={asset_id}, bids={len(orderbook.bids)}, asks={len(orderbook.asks)}")
+            await orderbook.apply_book_snapshot(message_data, current_time)
             
             # Notify callback if set
             if self.orderbook_update_callback:
@@ -143,6 +149,8 @@ class PolymarketMessageProcessor:
         except Exception as e:
             logger.error(f"Error applying book snapshot for asset_id={asset_id}: {e}")
             logger.error(f"Message data: {message_data}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
     
     async def _handle_price_change_message(self, message_data: Dict[str, Any], metadata: Dict[str, Any]) -> None:
         """Handle price changes - full override of specific price levels."""
@@ -164,11 +172,14 @@ class PolymarketMessageProcessor:
         
         orderbook = self.orderbooks[asset_id]
         
+        
         # Apply the price changes
         try:
             current_time = datetime.now()
             logger.info(f"[PRICE_CHANGE] Applying {len(changes)} price changes for asset_id={asset_id}")
-            orderbook.apply_price_changes(changes, current_time)
+            await orderbook.apply_price_changes(changes, current_time)
+            
+            
             logger.info(f"[PRICE_CHANGE] Successfully applied price changes for asset_id={asset_id}, bids={len(orderbook.bids)}, asks={len(orderbook.asks)}")
             
             # Notify callback if set
@@ -205,7 +216,7 @@ class PolymarketMessageProcessor:
         # Apply the tick size change
         try:
             current_time = datetime.now()
-            orderbook.apply_tick_size_change(old_tick_size, new_tick_size, current_time)
+            await orderbook.apply_tick_size_change(old_tick_size, new_tick_size, current_time)
             logger.info(f"Applied tick size change for asset_id={asset_id}: {old_tick_size} -> {new_tick_size}")
             
             # Notify callback if set

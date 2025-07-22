@@ -54,6 +54,13 @@ async def test_real_kalshi_snapshot():
     assert orderbook.market_ticker == "KXMAYORNYCPARTY-25-R"
     assert orderbook.last_seq == 5
     
+    # Validate O(1) optimization correctness
+    snapshot = orderbook.get_snapshot()
+    expected_yes_bid = max(snapshot.yes_contracts.keys()) if snapshot.yes_contracts else None
+    expected_no_bid = max(snapshot.no_contracts.keys()) if snapshot.no_contracts else None
+    assert snapshot.best_yes_bid == expected_yes_bid, f"Cached YES bid {snapshot.best_yes_bid} != calculated {expected_yes_bid}"
+    assert snapshot.best_no_bid == expected_no_bid, f"Cached NO bid {snapshot.best_no_bid} != calculated {expected_no_bid}"
+    
     # Check YES contracts
     print(f"📊 YES contracts: {len(orderbook.yes_contracts)} levels")
     assert len(orderbook.yes_contracts) == 1, "Should have 1 YES level"
@@ -81,8 +88,9 @@ async def test_real_kalshi_snapshot():
     print(f"📊 Summary stats: {summary}")
     
     assert summary is not None
-    assert summary["yes"]["bid"] == 1
-    assert summary["no"]["bid"] == 98
+    # Note: calculate_yes_no_prices() returns decimal format (0.0-1.0), not cent format
+    assert summary["yes"]["bid"] == 0.01  # 1 cent = 0.01 in decimal
+    assert summary["no"]["bid"] == 0.98   # 98 cents = 0.98 in decimal
     
     print("✅ Real Kalshi snapshot processing works correctly")
     return processor
@@ -99,7 +107,7 @@ async def test_real_kalshi_delta():
     real_delta = {
         "type": "orderbook_delta",
         "sid": 1,
-        "seq": 63,  # Much higher sequence number
+        "seq": 6,   # Sequential from snapshot (was 5)
         "msg": {
             "market_ticker": "KXMAYORNYCPARTY-25-D",
             "market_id": "d6001565-9ce7-4194-81a1-ab96e694491c",
@@ -123,7 +131,14 @@ async def test_real_kalshi_delta():
     
     # Verify delta application
     orderbook = processor.get_orderbook(1)
-    assert orderbook.last_seq == 63, "Sequence should update to 63"
+    assert orderbook.last_seq == 6, "Sequence should update to 6"
+    
+    # Validate O(1) optimization correctness after delta
+    snapshot = orderbook.get_snapshot()
+    expected_yes_bid = max(snapshot.yes_contracts.keys()) if snapshot.yes_contracts else None
+    expected_no_bid = max(snapshot.no_contracts.keys()) if snapshot.no_contracts else None
+    assert snapshot.best_yes_bid == expected_yes_bid, f"After delta: Cached YES bid {snapshot.best_yes_bid} != calculated {expected_yes_bid}"
+    assert snapshot.best_no_bid == expected_no_bid, f"After delta: Cached NO bid {snapshot.best_no_bid} != calculated {expected_no_bid}"
     
     # Check if price level 73 was added
     assert 73 in orderbook.yes_contracts, "Should have YES at price 73"

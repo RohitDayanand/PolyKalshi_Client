@@ -5,6 +5,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { MarketList } from "@/components/containers/market-list"
 import { VisualizationPanel } from "@/components/containers/visualization-panel"
 import { SubscribedMarkets } from "@/components/containers/subscribed-markets"
+import { ArbitrageAlerts, ArbitrageParameters } from "@/components/arbitrage"
 
 export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState("polymarket")
@@ -20,6 +21,18 @@ export default function DashboardPage() {
         {/* Full-width Visualization Panel */}
         <div className="mb-8">
           <VisualizationPanel />
+        </div>
+
+        {/* Arbitrage Dashboard Section */}
+        <div className="mb-8">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-2">
+              <ArbitrageAlerts />
+            </div>
+            <div className="lg:col-span-1">
+              <ArbitrageParameters />
+            </div>
+          </div>
         </div>
         
         {/* Below: Sidebar content in a responsive grid */}

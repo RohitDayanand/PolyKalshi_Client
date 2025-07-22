@@ -1,7 +1,8 @@
 """
-ArbitrageDetector - Core arbitrage detection logic separated from lifecycle management.
+ArbitrageDetector - Event-driven arbitrage detection coordinator.
 
-This module contains the pure arbitrage calculation logic, event handling, and alert generation.
+This module handles event subscriptions, triggers, and coordinates with ArbitrageCalculator
+for pure calculation logic. It acts as the bridge between market events and arbitrage detection.
 The ArbitrageManager handles pair registration, state management, and coordination.
 """
 
@@ -12,35 +13,28 @@ from datetime import datetime
 from dataclasses import dataclass
 
 from .events.event_bus import EventBus
-from .kalshi_client.models.orderbook_state import OrderbookState as KalshiOrderbookState
-from .kalshi_client.models.ticker_state import TickerState as KalshiTickerState
-from .polymarket_client.models.orderbook_state import PolymarketOrderbookState
+from .kalshi_client.models.orderbook_state import OrderbookState as KalshiOrderbookState, OrderbookSnapshot as KalshiOrderbookSnapshot
+from .polymarket_client.models.orderbook_state import PolymarketOrderbookState, PolymarketOrderbookSnapshot
+from .arbitrage_calculator import ArbitrageCalculator, ArbitrageOpportunity
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger()
 
-@dataclass
-class ArbitrageAlert:
-    """Data class representing an arbitrage opportunity."""
-    market_pair: str
-    timestamp: str
-    spread: float
-    direction: str  # "kalshi_to_polymarket" or "polymarket_to_kalshi"
-    side: str  # "yes" or "no"
-    kalshi_price: Optional[float]
-    polymarket_price: Optional[float]
-    kalshi_market_id: Optional[int]
-    polymarket_asset_id: Optional[str]
-    confidence: float = 1.0  # Future: confidence score for the arbitrage opportunity
+def arbitrage_detection_log(message: str) -> None:
+    """Log arbitrage detection messages with consistent formatting."""
+    logger.info(f"[ARBITRAGE_DETECTION] {message}")
+
+# Re-export ArbitrageOpportunity as ArbitrageAlert for backward compatibility
+ArbitrageAlert = ArbitrageOpportunity
 
 class ArbitrageDetector:
     """
-    Core arbitrage detection logic separated from lifecycle management.
+    Event-driven arbitrage detection coordinator.
     
-    Handles:
-    - Event subscriptions and processing
-    - Fresh state retrieval for depth analysis
-    - Arbitrage calculation and alert generation
-    - EventBus publishing
+    This class handles:
+    - Event subscriptions and triggers from market data updates
+    - Coordination with ArbitrageCalculator for pure calculation logic
+    - Publishing arbitrage alerts via EventBus
+    - No state caching - uses fresh snapshots for atomic consistency
     """
     
     def __init__(self, event_bus: EventBus, min_spread_threshold: float = 0.02):
@@ -48,261 +42,158 @@ class ArbitrageDetector:
         Initialize the arbitrage detector.
         
         Args:
-            event_bus: EventBus instance for communication
+            event_bus: EventBus instance for communication and alert publishing
             min_spread_threshold: Minimum spread required to trigger arbitrage alert
         """
         self.event_bus = event_bus
-        self.min_spread_threshold = min_spread_threshold
+        self.calculator = ArbitrageCalculator(min_spread_threshold)
         
-        # State caches (populated by events)
-        self.kalshi_states: Dict[int, KalshiTickerState] = {}  # sid -> TickerState
-        self.polymarket_states: Dict[str, PolymarketOrderbookState] = {}  # asset_id -> OrderbookState
-        
-        # Subscribe to price change events
+        # Subscribe to price change events as triggers (no state caching)
         self._subscribe_to_events()
         
         logger.info(f"ArbitrageDetector initialized with min_spread_threshold={min_spread_threshold}")
+        logger.info("Using event-triggered, snapshot-based arbitrage detection with separated calculation logic")
     
     def _subscribe_to_events(self):
-        """Subscribe to price change events from both platforms."""
-        # Subscribe to Kalshi ticker updates (when bid/ask changes)
-        self.event_bus.subscribe('kalshi.ticker_update', self._handle_kalshi_ticker_update)
+        """Subscribe to price change events as triggers (no state caching)."""
+        # Subscribe to Kalshi ticker updates (passes sid)
+        self.event_bus.subscribe('kalshi.bid_ask_updated', self._handle_kalshi_bid_ask_change)
         
-        # Subscribe to Polymarket price changes (when real price changes occur)
-        self.event_bus.subscribe('polymarket.price_change', self._handle_polymarket_price_change)
-        
-        logger.info("ArbitrageDetector subscribed to price change events")
-    
-    async def _handle_kalshi_ticker_update(self, event_data: Dict[str, Any]):
+        # Subscribe to Polymarket best bid/ask updates (passes condition_id for identification)
+        self.event_bus.subscribe('polymarket.bid_ask_updated', self._handle_polymarket_bid_ask_change)
+        # Optionally, keep other subscriptions as needed
+        logger.info("ArbitrageDetector subscribed to polymarket.bid_ask_updated events as triggers")
+
+    async def _handle_kalshi_bid_ask_change(self, event_data: Dict[str, Any]):
         """
-        Handle Kalshi ticker update events.
+        Handle Kalshi orderbook update events as triggers.
         
         Event data format:
         {
+            'platform': str,
             'sid': int,
-            'ticker_state': TickerState,
-            'bid_ask_changed': bool,
-            'market_ticker': str
+            'orderbook_state': OrderbookState,  # Ignored - we use fresh snapshots
+            'market_ticker': str,
+            'timestamp': str
         }
         """
         try:
             sid = event_data.get('sid')
-            ticker_state = event_data.get('ticker_state')
-            bid_ask_changed = event_data.get('bid_ask_changed', False)
             
-            if not sid or not ticker_state:
-                logger.warning("Invalid kalshi.ticker_update event data")
+            if not sid:
+                logger.warning("Invalid kalshi.orderbook_update event data - missing sid")
                 return
             
-            # Update cached state
-            self.kalshi_states[sid] = ticker_state
-            
-            # Only check arbitrage if bid/ask actually changed
-            if bid_ask_changed:
-                logger.debug(f"🔄 ARBITRAGE: Kalshi ticker update for sid={sid}, checking arbitrage")
-                await self._notify_kalshi_update(sid, ticker_state)
+            logger.debug(f"🔄 ARBITRAGE: Kalshi orderbook update for sid={sid}, triggering arbitrage check")
+            await self._notify_kalshi_update(sid)
             
         except Exception as e:
-            logger.error(f"Error handling Kalshi ticker update: {e}")
+            logger.error(f"Error handling Kalshi orderbook update: {e}")
     
-    async def _handle_polymarket_price_change(self, event_data: Dict[str, Any]):
+    async def _handle_polymarket_bid_ask_change(self, event_data: Dict[str, Any]):
         """
-        Handle Polymarket price change events.
+        Handle Polymarket price change events as triggers.
         
         Event data format:
         {
             'asset_id': str,
-            'orderbook_state': PolymarketOrderbookState,
+            'orderbook_state': PolymarketOrderbookState,  # Ignored - we use fresh snapshots
             'price_changed': bool,
             'market': str
         }
         """
         try:
             asset_id = event_data.get('asset_id')
-            orderbook_state = event_data.get('orderbook_state')
             price_changed = event_data.get('price_changed', False)
             
-            if not asset_id or not orderbook_state:
-                logger.warning("Invalid polymarket.price_change event data")
+            if not asset_id:
+                logger.warning("Invalid polymarket.price_change event data - missing asset_id")
                 return
             
-            # Update cached state
-            self.polymarket_states[asset_id] = orderbook_state
-            
-            # Only check arbitrage if price actually changed
+            # Only trigger arbitrage check if price actually changed
             if price_changed:
-                logger.debug(f"🔄 ARBITRAGE: Polymarket price change for asset_id={asset_id}, checking arbitrage")
-                await self._notify_polymarket_update(asset_id, orderbook_state)
+                logger.debug(f"🔄 ARBITRAGE CHECK: Polymarket price change for asset_id={asset_id}, triggering arbitrage check")
+                await self._notify_polymarket_update(asset_id)
             
         except Exception as e:
             logger.error(f"Error handling Polymarket price change: {e}")
+
+    async def _handle_polymarket_orderbook_update(self, event_data: Dict[str, Any]):
+        """
+        Handle Polymarket orderbook update events as triggers.
+        
+        Event data format:
+        {
+            'platform': str,
+            'asset_id': str,
+            'orderbook_state': PolymarketOrderbookState,  # Ignored - we use fresh snapshots
+            'market': str,
+            'timestamp': str
+        }
+        """
+        try:
+            asset_id = event_data.get('asset_id')
+            
+            if not asset_id:
+                logger.warning("Invalid polymarket.orderbook_update event data - missing asset_id")
+                return
+            
+            logger.debug(f"🔄 ARBITRAGE: Polymarket orderbook update for asset_id={asset_id}, triggering arbitrage check")
+            await self._notify_polymarket_update(asset_id)
+            
+        except Exception as e:
+            logger.error(f"Error handling Polymarket orderbook update: {e}")
     
-    async def _notify_kalshi_update(self, sid: int, ticker_state: KalshiTickerState):
+    async def _notify_kalshi_update(self, sid: int):
         """Notify that Kalshi has updated - ArbitrageManager will handle pair matching."""
         await self.event_bus.publish('arbitrage.kalshi_updated', {
             'sid': sid,
-            'ticker_state': ticker_state,
             'timestamp': datetime.now().isoformat()
         })
     
-    async def _notify_polymarket_update(self, asset_id: str, orderbook_state: PolymarketOrderbookState):
+    async def _notify_polymarket_update(self, asset_id: str):
         """Notify that Polymarket has updated - ArbitrageManager will handle pair matching."""
         await self.event_bus.publish('arbitrage.polymarket_updated', {
             'asset_id': asset_id,
-            'orderbook_state': orderbook_state,
             'timestamp': datetime.now().isoformat()
         })
     
-    async def check_arbitrage_for_pair(self, pair_name: str, kalshi_sid: int, 
-                                     poly_yes_asset_id: str, poly_no_asset_id: str) -> List[ArbitrageAlert]:
+    async def check_arbitrage_for_pair(self, pair_name: str, 
+                                     kalshi_orderbook_state: KalshiOrderbookState,
+                                     poly_yes_orderbook_state: PolymarketOrderbookState, 
+                                     poly_no_orderbook_state: PolymarketOrderbookState) -> List[ArbitrageAlert]:
         """
-        Check arbitrage for a specific pair using fresh orderbook states.
-        This ensures we have current depth information for sizing the arbitrage.
+        Check arbitrage for a specific pair using immutable orderbook snapshots.
+        This ensures atomic price calculations across platforms at the exact same moment.
         
         Args:
             pair_name: Market pair identifier
-            kalshi_sid: Kalshi subscription ID
-            poly_yes_asset_id: Polymarket YES asset ID
-            poly_no_asset_id: Polymarket NO asset ID
+            kalshi_orderbook_state: Kalshi OrderbookState for direct snapshot access
+            poly_yes_orderbook_state: Polymarket YES OrderbookState for snapshot access
+            poly_no_orderbook_state: Polymarket NO OrderbookState for snapshot access
             
         Returns:
             List of arbitrage alerts (empty if no opportunities found)
         """
-        # Get FRESH states from both platforms - critical for depth/liquidity analysis
-        kalshi_ticker = self.kalshi_states.get(kalshi_sid)
-        poly_yes_orderbook = self.polymarket_states.get(poly_yes_asset_id)
-        poly_no_orderbook = self.polymarket_states.get(poly_no_asset_id)
+        # Get immutable snapshots at exact same moment - atomic consistency
+        kalshi_snapshot = kalshi_orderbook_state.get_snapshot()
+        poly_yes_snapshot = poly_yes_orderbook_state.get_snapshot()
+        poly_no_snapshot = poly_no_orderbook_state.get_snapshot()
         
-        # Validate we have fresh data from both sides
-        if not kalshi_ticker:
-            logger.debug(f"No current Kalshi ticker state for sid={kalshi_sid} in pair {pair_name}")
-            return []
-        if not poly_yes_orderbook:
-            logger.debug(f"No current Polymarket YES orderbook for asset_id={poly_yes_asset_id} in pair {pair_name}")
-            return []
-        if not poly_no_orderbook:
-            logger.debug(f"No current Polymarket NO orderbook for asset_id={poly_no_asset_id} in pair {pair_name}")
-            return []
+        logger.debug(f"🔄 ARBITRAGE: Checking {pair_name} - using immutable snapshots")
+        logger.debug(f"   Kalshi sid={kalshi_snapshot.sid}, Poly YES={poly_yes_snapshot.asset_id}, NO={poly_no_snapshot.asset_id}")
         
-        logger.debug(f"🔄 ARBITRAGE: Checking {pair_name} - using fresh orderbook states")
+        # Log arbitrage detection attempt
+        arbitrage_detection_log(f"🔍 ARBITRAGE CHECK | pair={pair_name} | kalshi_sid={kalshi_snapshot.sid} | poly_yes={poly_yes_snapshot.asset_id} | poly_no={poly_no_snapshot.asset_id}")
         
-        # Extract current pricing and depth information
-        kalshi_prices = kalshi_ticker.get_summary_stats()
-        poly_yes_prices = poly_yes_orderbook.calculate_current_prices()
-        poly_no_prices = poly_no_orderbook.calculate_current_prices()
-        
-        # TODO: Add depth analysis here
-        # kalshi_depth = self._analyze_kalshi_depth(kalshi_ticker)
-        # poly_depth = self._analyze_polymarket_depth(poly_yes_orderbook, poly_no_orderbook)
-        
-        # Calculate arbitrage opportunities with current market state
-        return await self._calculate_arbitrage_alerts(
-            pair_name, kalshi_prices, poly_yes_prices, poly_no_prices,
-            kalshi_sid, poly_yes_asset_id
+        # Delegate to pure calculation logic
+        opportunities = self.calculator.calculate_arbitrage_opportunities(
+            pair_name, kalshi_snapshot, poly_yes_snapshot, poly_no_snapshot
         )
+        
+        # Convert ArbitrageOpportunity to ArbitrageAlert for backward compatibility
+        return opportunities
     
-    async def _calculate_arbitrage_alerts(self, pair_name: str, kalshi_prices: Dict, 
-                                        poly_yes_prices: Dict, poly_no_prices: Dict,
-                                        kalshi_sid: int, poly_yes_asset_id: str) -> List[ArbitrageAlert]:
-        """
-        Calculate arbitrage opportunities between Kalshi and Polymarket prices.
-        
-        Returns:
-            List of arbitrage alerts
-        """
-        alerts = []
-        
-        # Extract prices (with validation)
-        kalshi_yes_bid = kalshi_prices.get("yes", {}).get("bid")
-        kalshi_yes_ask = kalshi_prices.get("yes", {}).get("ask") 
-        kalshi_no_bid = kalshi_prices.get("no", {}).get("bid")
-        kalshi_no_ask = kalshi_prices.get("no", {}).get("ask")
-        
-        poly_yes_bid = poly_yes_prices.get("bid")
-        poly_yes_ask = poly_yes_prices.get("ask")
-        poly_no_bid = poly_no_prices.get("bid") 
-        poly_no_ask = poly_no_prices.get("ask")
-        
-        # Check for valid prices before calculating spreads
-        if None in [kalshi_yes_bid, kalshi_yes_ask, poly_yes_bid, poly_yes_ask]:
-            logger.debug(f"Missing YES prices for {pair_name}, skipping arbitrage check")
-            return alerts
-        
-        if None in [kalshi_no_bid, kalshi_no_ask, poly_no_bid, poly_no_ask]:
-            logger.debug(f"Missing NO prices for {pair_name}, skipping arbitrage check") 
-            return alerts
-        
-        # Check YES side arbitrage opportunities
-        # Kalshi YES bid > Polymarket YES ask (sell Kalshi, buy Polymarket)
-        if kalshi_yes_bid > poly_yes_ask:
-            spread = kalshi_yes_bid - poly_yes_ask
-            if spread >= self.min_spread_threshold:
-                alert = ArbitrageAlert(
-                    market_pair=pair_name,
-                    timestamp=datetime.now().isoformat(),
-                    spread=spread,
-                    direction="kalshi_to_polymarket",
-                    side="yes",
-                    kalshi_price=kalshi_yes_bid,
-                    polymarket_price=poly_yes_ask,
-                    kalshi_market_id=kalshi_sid,
-                    polymarket_asset_id=poly_yes_asset_id
-                )
-                alerts.append(alert)
-        
-        # Polymarket YES bid > Kalshi YES ask (sell Polymarket, buy Kalshi)
-        if poly_yes_bid > kalshi_yes_ask:
-            spread = poly_yes_bid - kalshi_yes_ask
-            if spread >= self.min_spread_threshold:
-                alert = ArbitrageAlert(
-                    market_pair=pair_name,
-                    timestamp=datetime.now().isoformat(),
-                    spread=spread,
-                    direction="polymarket_to_kalshi", 
-                    side="yes",
-                    kalshi_price=kalshi_yes_ask,
-                    polymarket_price=poly_yes_bid,
-                    kalshi_market_id=kalshi_sid,
-                    polymarket_asset_id=poly_yes_asset_id
-                )
-                alerts.append(alert)
-        
-        # Check NO side arbitrage opportunities
-        # Kalshi NO bid > Polymarket NO ask (sell Kalshi, buy Polymarket)
-        if kalshi_no_bid > poly_no_ask:
-            spread = kalshi_no_bid - poly_no_ask
-            if spread >= self.min_spread_threshold:
-                alert = ArbitrageAlert(
-                    market_pair=pair_name,
-                    timestamp=datetime.now().isoformat(),
-                    spread=spread,
-                    direction="kalshi_to_polymarket",
-                    side="no", 
-                    kalshi_price=kalshi_no_bid,
-                    polymarket_price=poly_no_ask,
-                    kalshi_market_id=kalshi_sid,
-                    polymarket_asset_id=poly_yes_asset_id  # Using YES asset_id as primary
-                )
-                alerts.append(alert)
-        
-        # Polymarket NO bid > Kalshi NO ask (sell Polymarket, buy Kalshi)
-        if poly_no_bid > kalshi_no_ask:
-            spread = poly_no_bid - kalshi_no_ask
-            if spread >= self.min_spread_threshold:
-                alert = ArbitrageAlert(
-                    market_pair=pair_name,
-                    timestamp=datetime.now().isoformat(),
-                    spread=spread,
-                    direction="polymarket_to_kalshi",
-                    side="no",
-                    kalshi_price=kalshi_no_ask,
-                    polymarket_price=poly_no_bid,
-                    kalshi_market_id=kalshi_sid,
-                    polymarket_asset_id=poly_yes_asset_id  # Using YES asset_id as primary
-                )
-                alerts.append(alert)
-        
-        return alerts
     
     async def publish_arbitrage_alert(self, alert: ArbitrageAlert):
         """Publish arbitrage alert via EventBus."""
@@ -324,9 +215,9 @@ class ArbitrageDetector:
     def get_stats(self) -> Dict[str, Any]:
         """Get detector statistics."""
         return {
-            'kalshi_states_count': len(self.kalshi_states),
-            'polymarket_states_count': len(self.polymarket_states),
-            'kalshi_sids': list(self.kalshi_states.keys()),
-            'polymarket_asset_ids': list(self.polymarket_states.keys()),
-            'min_spread_threshold': self.min_spread_threshold
+            'detection_method': 'snapshot-based',
+            'min_spread_threshold': self.calculator.min_spread_threshold,
+            'event_subscriptions': ['kalshi.bid_ask_updated', 'polymarket.bid_ask_updated'],
+            'status': 'active'
         }
+        

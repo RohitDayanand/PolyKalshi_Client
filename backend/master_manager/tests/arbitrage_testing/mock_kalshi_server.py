@@ -8,6 +8,9 @@ Supports the 5 message types that KalshiMessageProcessor expects:
 - orderbook_snapshot: Full orderbook state
 - orderbook_delta: Incremental orderbook updates  
 - ticker_v2: Price/volume ticker updates
+
+Option to override controlled update sending - in future versions updates will be handled by a different test
+
 """
 
 import asyncio
@@ -49,7 +52,7 @@ class MockKalshiMarket:
     no: Dict[str, MockOrderbookLevel] = field(default_factory=dict)   # price -> level
     
     # Tracking
-    last_seq: int = 1000
+    last_seq: int = 0 #starts at 0 - deltas at 1000 level
     last_update: datetime = field(default_factory=datetime.now)
     
     def __post_init__(self):
@@ -95,6 +98,10 @@ class MockKalshiServer:
         self.next_sid = 1
         self.server = None
         self.update_task: Optional[asyncio.Task] = None
+        
+        # Control flags for testing
+        self.enable_periodic_updates = True  # Can be disabled for controlled testing
+        self.controlled_mode = False  # When True, ignores random updates
         
         # Initialize sample markets
         self._initialize_sample_markets()
@@ -152,8 +159,8 @@ class MockKalshiServer:
             ping_timeout=10
         )
         
-        # Start background task for periodic market updates
-        self.update_task = asyncio.create_task(self._periodic_updates())
+        # Start background task for periodic market updates - disabled for now
+        #self.update_task = asyncio.create_task(self._periodic_updates())
         
         logger.info("MockKalshiServer started successfully")
         return self.server
@@ -343,6 +350,10 @@ class MockKalshiServer:
             try:
                 await asyncio.sleep(random.uniform(3, 10))  # Random intervals 3-10 seconds
                 
+                # Skip periodic updates if disabled or in controlled mode
+                if not self.enable_periodic_updates or self.controlled_mode:
+                    continue
+                
                 if not self.connected_clients:
                     continue
                 
@@ -376,7 +387,7 @@ class MockKalshiServer:
             except Exception as e:
                 logger.error(f"Error in Kalshi periodic updates: {e}")
     
-    async def _send_orderbook_delta(self, clients: List[WebSocketServerProtocol], sid: int):
+    async def _send_orderbook_delta(self, clients: List[WebSocketServerProtocol], sid: int, delta_override: Dict = None):
         """Send orderbook delta update"""
         if sid not in self.markets:
             return
@@ -384,28 +395,47 @@ class MockKalshiServer:
         market = self.markets[sid]
         market.last_seq += 1
 
-        # Generate random orderbook change for yes or no
-        is_yes = random.choice([True, False])
-        book = market.yes if is_yes else market.no
-        contract_type = "yes" if is_yes else "no"
-
-        # If there are levels, update one; else, add a new one
-        if book:
-            price = random.choice(list(book.keys()))
-            old_level = book[price]
-            new_size = max(0, old_level.size + random.randint(-50, 50))
-            if new_size == 0:
-                del book[price]
-                delta_data = [price, 0]
+        if delta_override:
+            # Use provided delta data for testing
+            side = delta_override["side"]  # "yes" or "no"
+            price = str(delta_override["price"])
+            size = delta_override["delta"]
+            
+            # Update the market's orderbook
+            book = market.yes if side == "yes" else market.no
+            
+            if size > 0:
+                book[price] = MockOrderbookLevel(price=price, size=size)
+                delta_data = [price, size]
             else:
-                book[price] = MockOrderbookLevel(price=price, size=new_size)
-                delta_data = [price, new_size]
+                if price in book:
+                    del book[price]
+                delta_data = [price, 0]
+            
+            contract_type = side
         else:
-            # Add a new random price level
-            price = str(random.randint(1, 99))
-            size = random.randint(50, 200)
-            book[price] = MockOrderbookLevel(price=price, size=size)
-            delta_data = [price, size]
+            # Generate random orderbook change for yes or no
+            is_yes = random.choice([True, False])
+            book = market.yes if is_yes else market.no
+            contract_type = "yes" if is_yes else "no"
+
+            # If there are levels, update one; else, add a new one
+            if book:
+                price = random.choice(list(book.keys()))
+                old_level = book[price]
+                new_size = max(0, old_level.size + random.randint(-50, 50))
+                if new_size == 0:
+                    del book[price]
+                    delta_data = [price, 0]
+                else:
+                    book[price] = MockOrderbookLevel(price=price, size=new_size)
+                    delta_data = [price, new_size]
+            else:
+                # Add a new random price level
+                price = str(random.randint(1, 99))
+                size = random.randint(50, 200)
+                book[price] = MockOrderbookLevel(price=price, size=size)
+                delta_data = [price, size]
 
         # Create delta message in Kalshi format (flat yes/no, no bids/asks distinction)
         delta_msg = {
@@ -522,6 +552,24 @@ class MockKalshiServer:
     def get_market(self, sid: int) -> Optional[MockKalshiMarket]:
         """Get market state for testing"""
         return self.markets.get(sid)
+    
+    def set_controlled_mode(self, enabled: bool):
+        """Enable/disable controlled mode for precise testing"""
+        self.controlled_mode = enabled
+        if enabled:
+            logger.info("MockKalshiServer: Controlled mode ENABLED - periodic updates disabled")
+        else:
+            logger.info("MockKalshiServer: Controlled mode DISABLED - periodic updates enabled")
+    
+    def disable_periodic_updates(self):
+        """Disable all periodic background updates"""
+        self.enable_periodic_updates = False
+        logger.info("MockKalshiServer: Periodic updates DISABLED")
+    
+    def enable_periodic_updates_func(self):
+        """Re-enable periodic background updates"""
+        self.enable_periodic_updates = True
+        logger.info("MockKalshiServer: Periodic updates ENABLED")
 
 '''
 # Standalone server runner for testing

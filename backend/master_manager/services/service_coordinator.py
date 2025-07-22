@@ -55,6 +55,21 @@ class ServiceCoordinator:
         
         logger.info("ServiceCoordinator initialized")
     
+    def set_platform_processors(self, kalshi_processor=None, polymarket_processor=None):
+        """
+        Set processor references in services that need them.
+        
+        Args:
+            kalshi_processor: Kalshi processor with get_orderbook() method
+            polymarket_processor: Polymarket processor with get_orderbook() method
+        """
+        # Set processors in arbitrage service
+        if kalshi_processor or polymarket_processor:
+            self.arbitrage_service.set_processors(kalshi_processor, polymarket_processor)
+            logger.info("Platform processors set in ServiceCoordinator services")
+        else:
+            logger.warning("No processors provided to ServiceCoordinator")
+    
     def _setup_event_subscriptions(self):
         """Set up event subscriptions for cross-cutting services."""
         
@@ -120,19 +135,18 @@ class ServiceCoordinator:
         })
     
     async def _handle_arbitrage_alert(self, alert_data: Dict[str, Any]):
-        """Handle arbitrage alerts and forward them to WebSocket clients."""
+        """Handle arbitrage alerts and track statistics."""
         try:
             logger.info(f"Arbitrage alert: {alert_data}")
             self.stats["arbitrage_alerts"] += 1
             
-            # Publish arbitrage alert through event bus
-            await self.event_bus.publish('arbitrage.alert', {
-                'type': 'arbitrage_alert',
-                **alert_data
-            })
+            # REMOVED: Redundant arbitrage.alert publishing that caused infinite recursion
+            # The ArbitrageDetector already publishes the 'arbitrage.alert' event
+            # Re-publishing it here created an infinite loop: 
+            # ArbitrageDetector -> publish 'arbitrage.alert' -> ServiceCoordinator -> publish 'arbitrage.alert' -> ServiceCoordinator -> ...
             
-            # Also publish to WebSocket clients directly (for compatibility)
-            # This will be handled by the coordinator that subscribes to arbitrage.alert
+            # ServiceCoordinator now only tracks statistics and logs alerts
+            # Other components can subscribe directly to 'arbitrage.alert' from ArbitrageDetector
             
         except Exception as e:
             self.stats["service_errors"] += 1
