@@ -23,6 +23,14 @@ from ..events.event_bus import EventBus, global_event_bus
 
 logger = logging.getLogger(__name__)
 
+# Add custom logging level for orderbook snapshots
+ORDERBOOK_SNAPSHOT_LEVEL = 25
+logging.addLevelName(ORDERBOOK_SNAPSHOT_LEVEL, "ORDERBOOK_SNAPSHOT")
+
+def orderbook_snapshot_log(message):
+    """Log orderbook snapshot updates at custom level for easy filtering."""
+    logger.log(ORDERBOOK_SNAPSHOT_LEVEL, message)
+
 class KalshiMessageProcessor:
     """
     Processes raw Kalshi WebSocket messages to maintain orderbook state.
@@ -165,6 +173,8 @@ class KalshiMessageProcessor:
             metadata: Message metadata including ticker, channel, etc.
         """
         try:
+            logger.info(f"🔍 KALSHI MESSAGE RECEIVED: {raw_message[:200]}{'...' if len(raw_message) > 200 else ''}")
+            logger.info(f"🔍 KALSHI METADATA: {metadata}")
             # Decode JSON
             try:
                 message_data = json.loads(raw_message)
@@ -264,7 +274,6 @@ class KalshiMessageProcessor:
         # Apply the snapshot
         try:
             await orderbook.apply_snapshot(message_data, seq, current_time)
-            logger.info(f"Applied orderbook_snapshot for sid={sid}, seq={seq}")
             
             # Notify callback if set
             if self.orderbook_update_callback:
@@ -313,6 +322,7 @@ class KalshiMessageProcessor:
         try:
             current_time = datetime.now()
             await orderbook.apply_delta(message_data, seq, current_time)
+            
             
             # Notify callback if set
             if self.orderbook_update_callback:

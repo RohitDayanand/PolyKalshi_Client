@@ -28,10 +28,10 @@ os.environ['POLYMARKET_WS_URL'] = 'ws://localhost:8001'
 os.environ['KALSHI_WS_URL'] = 'ws://localhost:8002'
 os.environ['POLYMARKET_DEBUG_LOGGING'] = 'true'
 
-# Import mock servers using absolute imports
-from backend.master_manager.tests.mock_polymarket_server import MockPolymarketServer
-from backend.master_manager.tests.mock_kalshi_server import MockKalshiServer
-from backend.master_manager.tests.mock_arbitrage_feeder import MockArbitrageFeeder
+# Import mock servers using relative imports
+from .mock_polymarket_server import MockPolymarketServer
+from .mock_kalshi_server import MockKalshiServer
+from .mock_arbitrage_feeder import MockArbitrageFeeder
 
 # Import MarketsCoordinator (relative to master_manager)
 from backend.master_manager.markets_coordinator import MarketsCoordinator

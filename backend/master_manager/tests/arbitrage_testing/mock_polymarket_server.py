@@ -7,6 +7,9 @@ Supports the 4 message types that PolymarketMessageProcessor expects:
 - price_change: Price level updates  
 - tick_size_change: Minimum tick size changes
 - last_trade_price: Trade price updates
+
+Option to override controlled update sending - in future versions updates will be handled by a different test
+
 """
 
 import asyncio
@@ -65,8 +68,14 @@ class MockPolymarketServer:
         self.server = None
         self.update_task: Optional[asyncio.Task] = None
         
+        # Control flags for testing
+        self.enable_periodic_updates = True  # Can be disabled for controlled testing
+        self.controlled_mode = False  # When True, ignores random updates
+        
         # Initialize sample markets with realistic data
-        self._initialize_sample_markets()
+        #@TODO - deprecated - need to check whether this model c
+        if self.enable_periodic_updates:
+            self._initialize_sample_markets()
         
         logger.info(f"MockPolymarketServer initialized on {host}:{port}")
     
@@ -74,18 +83,13 @@ class MockPolymarketServer:
         """Initialize sample markets with realistic orderbook data"""
         sample_markets = [
             {
-                "asset_id": "75505728818237076147318796536066812362152358606307154083407489467059230821371",
-                "market_slug": "will-trump-win-2024-election-yes",
-                "initial_price": 0.65
-            },
-            {
-                "asset_id": "67369669271127885658944531351746308398542291270457462650056001798232262328240", 
-                "market_slug": "will-trump-win-2024-election-no",
-                "initial_price": 0.35
-            },
-            {
                 "asset_id": "test_token_123",
                 "market_slug": "test-market-yes",
+                "initial_price": 0.50
+            },
+            {
+                "asset_id": "test_token_123_no",
+                "market_slug": "test-market-no", 
                 "initial_price": 0.50
             }
         ]
@@ -191,9 +195,12 @@ class MockPolymarketServer:
             data = json.loads(message)
             logger.debug(f"Received message: {data}")
             
-            # Handle subscription messages
-            if data.get("channel") == "book":
-                await self._handle_book_subscription(websocket, data)
+            # Handle Polymarket MARKET subscription messages
+            message_type = data.get("type")
+            logger.debug(f"Message type: '{message_type}', checking against 'MARKET'")
+            if message_type == "MARKET":
+                logger.info(f"Processing MARKET subscription for assets: {data.get('assets_ids')}")
+                await self._handle_market_subscription(websocket, data)
             else:
                 logger.warning(f"Unknown message type: {data}")
                 
@@ -202,36 +209,57 @@ class MockPolymarketServer:
         except Exception as e:
             logger.error(f"Error handling message: {e}")
     
-    async def _handle_book_subscription(self, websocket: WebSocketServerProtocol, data: Dict[str, Any]):
-        """Handle book channel subscription"""
-        asset_id = data.get("market")
-        if not asset_id:
-            logger.warning("No market specified in book subscription")
+    async def _handle_market_subscription(self, websocket: WebSocketServerProtocol, data: Dict[str, Any]):
+        """Handle MARKET subscription (Polymarket format)"""
+        assets_ids = data.get("assets_ids")
+        if not assets_ids:
+            logger.warning("No assets_ids specified in MARKET subscription")
             return
         
-        # Add to client subscriptions
-        self.connected_clients[websocket]["subscriptions"].add(asset_id)
-        logger.info(f"Client subscribed to market {asset_id}")
+        # Handle multiple asset IDs
+        if isinstance(assets_ids, str):
+            assets_ids = [assets_ids]
         
-        # Send initial book snapshot if market exists
-        if asset_id in self.market_states:
-            await self._send_book_snapshot(websocket, asset_id)
-        else:
-            logger.warning(f"Unknown market requested: {asset_id}")
+        for asset_id in assets_ids:
+            # Add to client subscriptions
+            self.connected_clients[websocket]["subscriptions"].add(asset_id)
+            logger.info(f"Client subscribed to market {asset_id}")
+            
+            # Send initial book snapshot if market exists
+            if asset_id in self.market_states:
+                await self._send_book_snapshot(websocket, asset_id)
+            else:
+                logger.warning(f"Unknown market requested: {asset_id}")
+                
+        # Send a confirmation/success message (Polymarket format)
+        await self._send_market_confirmation(websocket, assets_ids)
+    
+    async def _send_market_confirmation(self, websocket: WebSocketServerProtocol, assets_ids: List[str]):
+        """Send confirmation that market subscription was successful"""
+        # Send a token_map event (this is what Polymarket sends initially)
+        # The Polymarket processor needs this to have metadata.event_type = "token_map"
+        confirmation = {asset_id: {"outcome": "YES" if not asset_id.endswith("_no") else "NO"} for asset_id in assets_ids}
+        
+        try:
+            # Polymarket wraps all messages in arrays
+            await websocket.send(json.dumps([confirmation]))
+            logger.debug(f"Sent market confirmation: {confirmation}")
+        except Exception as e:
+            logger.error(f"Failed to send market confirmation: {e}")
     
     async def _send_book_snapshot(self, websocket: WebSocketServerProtocol, asset_id: str):
         """Send full orderbook snapshot to client"""
         market = self.market_states[asset_id]
         
-        # Format bid levels (descending price order)
+        # Format bid levels (descending price order) - Polymarket expects objects with price/size
         bids = []
         for level in sorted(market.bid_levels, key=lambda x: float(x.price), reverse=True):
-            bids.append([level.price, level.size])
+            bids.append({"price": level.price, "size": level.size})
         
-        # Format ask levels (ascending price order)
+        # Format ask levels (ascending price order) - Polymarket expects objects with price/size
         asks = []
         for level in sorted(market.ask_levels, key=lambda x: float(x.price)):
-            asks.append([level.price, level.size])
+            asks.append({"price": level.price, "size": level.size})
         
         # Create book message in exact Polymarket format
         book_message = {
@@ -244,7 +272,8 @@ class MockPolymarketServer:
         }
         
         try:
-            await websocket.send(json.dumps(book_message))
+            # Polymarket wraps all messages in arrays
+            await websocket.send(json.dumps([book_message]))
             logger.debug(f"Sent book snapshot for {asset_id}: {len(bids)} bids, {len(asks)} asks")
         except Exception as e:
             logger.error(f"Error sending book snapshot: {e}")
@@ -254,6 +283,10 @@ class MockPolymarketServer:
         while True:
             try:
                 await asyncio.sleep(random.uniform(2, 8))  # Random intervals 2-8 seconds
+                
+                # Skip periodic updates if disabled or in controlled mode
+                if not self.enable_periodic_updates or self.controlled_mode:
+                    continue
                 
                 if not self.connected_clients:
                     continue
@@ -298,67 +331,92 @@ class MockPolymarketServer:
         elif update_type == "last_trade_price":
             await self._send_last_trade_price(subscribed_clients, asset_id)
     
-    async def _send_price_change(self, clients: List[WebSocketServerProtocol], asset_id: str):
+    async def _send_price_change(self, clients: List[WebSocketServerProtocol], asset_id: str, price_change_override: Dict = None):
         """Send price_change message"""
         market = self.market_states[asset_id]
         
-        # Randomly update a bid or ask level
-        is_bid = random.choice([True, False])
-        
-        if is_bid and market.bid_levels:
-            # Update a bid level
-            level_idx = random.randint(0, len(market.bid_levels) - 1)
-            old_level = market.bid_levels[level_idx]
+        if price_change_override:
+            # Use provided price change data for testing
+            side = price_change_override["side"]  # "bid" or "ask"
+            price = price_change_override["price"]
+            size = price_change_override["size"]
             
-            # Small price/size change
-            new_price = max(0.001, float(old_level.price) + random.uniform(-0.005, 0.005))
-            new_size = max(0, float(old_level.size) + random.uniform(-50, 50))
+            # Update the appropriate side of the orderbook
+            if side == "bid":
+                if market.bid_levels:
+                    market.bid_levels[0] = MockOrderbookLevel(price=f"{price:.3f}", size=f"{size:.2f}")
+                else:
+                    market.bid_levels = [MockOrderbookLevel(price=f"{price:.3f}", size=f"{size:.2f}")]
+            else:  # ask
+                if market.ask_levels:
+                    market.ask_levels[0] = MockOrderbookLevel(price=f"{price:.3f}", size=f"{size:.2f}")
+                else:
+                    market.ask_levels = [MockOrderbookLevel(price=f"{price:.3f}", size=f"{size:.2f}")]
             
-            market.bid_levels[level_idx] = MockOrderbookLevel(
-                price=f"{new_price:.3f}",
-                size=f"{new_size:.2f}"
-            )
-            
-            side = "bid"
-            price = f"{new_price:.3f}"
-            size = f"{new_size:.2f}"
-            
-        elif market.ask_levels:
-            # Update an ask level
-            level_idx = random.randint(0, len(market.ask_levels) - 1)
-            old_level = market.ask_levels[level_idx]
-            
-            # Small price/size change
-            new_price = min(0.999, float(old_level.price) + random.uniform(-0.005, 0.005))
-            new_size = max(0, float(old_level.size) + random.uniform(-50, 50))
-            
-            market.ask_levels[level_idx] = MockOrderbookLevel(
-                price=f"{new_price:.3f}",
-                size=f"{new_size:.2f}"
-            )
-            
-            side = "ask"
-            price = f"{new_price:.3f}"
-            size = f"{new_size:.2f}"
+            # Format for message
+            formatted_price = f"{price:.3f}"
+            formatted_size = f"{size:.2f}"
         else:
-            return
+            # Randomly update a bid or ask level
+            is_bid = random.choice([True, False])
+            
+            if is_bid and market.bid_levels:
+                # Update a bid level
+                level_idx = random.randint(0, len(market.bid_levels) - 1)
+                old_level = market.bid_levels[level_idx]
+                
+                # Small price/size change
+                new_price = max(0.001, float(old_level.price) + random.uniform(-0.005, 0.005))
+                new_size = max(0, float(old_level.size) + random.uniform(-50, 50))
+                
+                market.bid_levels[level_idx] = MockOrderbookLevel(
+                    price=f"{new_price:.3f}",
+                    size=f"{new_size:.2f}"
+                )
+                
+                side = "bid"
+                formatted_price = f"{new_price:.3f}"
+                formatted_size = f"{new_size:.2f}"
+                
+            elif market.ask_levels:
+                # Update an ask level
+                level_idx = random.randint(0, len(market.ask_levels) - 1)
+                old_level = market.ask_levels[level_idx]
+                
+                # Small price/size change
+                new_price = min(0.999, float(old_level.price) + random.uniform(-0.005, 0.005))
+                new_size = max(0, float(old_level.size) + random.uniform(-50, 50))
+                
+                market.ask_levels[level_idx] = MockOrderbookLevel(
+                    price=f"{new_price:.3f}",
+                    size=f"{new_size:.2f}"
+                )
+                
+                side = "ask"
+                formatted_price = f"{new_price:.3f}"
+                formatted_size = f"{new_size:.2f}"
+            else:
+                return
         
-        # Create price_change message in exact Polymarket format
+        # Create price_change message in exact Polymarket format - processor expects "changes" array
         price_change_message = {
             "event_type": "price_change",
             "asset_id": asset_id,
             "market": market.market_slug,
             "timestamp": int(time.time()),
-            "side": side,
-            "price": price,
-            "size": size
+            "changes": [{
+                "side": side,
+                "price": formatted_price,
+                "size": formatted_size
+            }]
         }
         
         # Send to all subscribed clients
         for client in clients:
             try:
-                await client.send(json.dumps(price_change_message))
-                logger.debug(f"Sent price_change for {asset_id}: {side} {price} @ {size}")
+                # Polymarket wraps all messages in arrays
+                await client.send(json.dumps([price_change_message]))
+                logger.debug(f"Sent price_change for {asset_id}: {side} {formatted_price} @ {formatted_size}")
             except Exception as e:
                 logger.error(f"Error sending price_change: {e}")
     
@@ -381,7 +439,8 @@ class MockPolymarketServer:
         # Send to all subscribed clients
         for client in clients:
             try:
-                await client.send(json.dumps(tick_change_message))
+                # Polymarket wraps all messages in arrays
+                await client.send(json.dumps([tick_change_message]))
                 logger.debug(f"Sent tick_size_change for {asset_id}: {new_tick_size}")
             except Exception as e:
                 logger.error(f"Error sending tick_size_change: {e}")
@@ -406,7 +465,8 @@ class MockPolymarketServer:
         # Send to all subscribed clients
         for client in clients:
             try:
-                await client.send(json.dumps(trade_message))
+                # Polymarket wraps all messages in arrays
+                await client.send(json.dumps([trade_message]))
                 logger.debug(f"Sent last_trade_price for {asset_id}: {new_price}")
             except Exception as e:
                 logger.error(f"Error sending last_trade_price: {e}")
@@ -424,6 +484,24 @@ class MockPolymarketServer:
     def get_market_state(self, asset_id: str) -> Optional[MockMarketState]:
         """Get current market state for testing"""
         return self.market_states.get(asset_id)
+    
+    def set_controlled_mode(self, enabled: bool):
+        """Enable/disable controlled mode for precise testing"""
+        self.controlled_mode = enabled
+        if enabled:
+            logger.info("MockPolymarketServer: Controlled mode ENABLED - periodic updates disabled")
+        else:
+            logger.info("MockPolymarketServer: Controlled mode DISABLED - periodic updates enabled")
+    
+    def disable_periodic_updates(self):
+        """Disable all periodic background updates"""
+        self.enable_periodic_updates = False
+        logger.info("MockPolymarketServer: Periodic updates DISABLED")
+    
+    def enable_periodic_updates_func(self):
+        """Re-enable periodic background updates"""
+        self.enable_periodic_updates = True
+        logger.info("MockPolymarketServer: Periodic updates ENABLED")
 
 # Standalone server runner for testing
 '''

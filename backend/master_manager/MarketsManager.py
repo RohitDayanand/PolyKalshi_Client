@@ -1,4 +1,5 @@
 """
+DEPRECATED
 Markets Manager - Central coordinator for    def __init__(self, config_path: Optional[str] = None):
         # Client storage
         self.polymarket_clients: Dict[str, PolymarketClient] = {}

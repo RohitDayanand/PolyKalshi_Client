@@ -5,7 +5,7 @@ Provides a thin orchestration layer over platform-specific managers and services
 while maintaining backward compatibility with the existing interface.
 """
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 from backend.master_manager.events.event_bus import EventBus, global_event_bus
 from backend.master_manager.platforms.kalshi_platform_manager import KalshiPlatformManager
@@ -46,6 +46,12 @@ class MarketsCoordinator:
         # Track if async components are started
         self._async_started = False
         
+        # Simple tracking of currently connected markets (one per platform)
+        self.current_markets = {
+            'kalshi': None,      # ticker string (e.g., "PREZ24")
+            'polymarket': None   # "yes_asset_id,no_asset_id" format
+        }
+        
         # Set up global event handlers for WebSocket publishing
         self._setup_global_event_handlers()
         
@@ -66,6 +72,27 @@ class MarketsCoordinator:
         self.event_bus.subscribe('polymarket.error', self._log_platform_error)
         
         logger.info("Global event handlers set up")
+    
+    def _wire_processors(self):
+        """Wire platform processors to services that need them."""
+        try:
+            # Get processors from platform managers
+            kalshi_processor = getattr(self.kalshi_platform, 'processor', None)
+            polymarket_processor = getattr(self.polymarket_platform, 'processor', None)
+            
+            # Debug logging to check if processors are found
+            logger.debug(f"Retrieved processors: kalshi={kalshi_processor is not None}, polymarket={polymarket_processor is not None}")
+            
+            # Set processors in service coordinator
+            self.service_coordinator.set_platform_processors(
+                kalshi_processor=kalshi_processor,
+                polymarket_processor=polymarket_processor
+            )
+            
+            logger.info("✅ Processors wired to services")
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to wire processors: {e}")
     
     async def _publish_arbitrage_alert(self, alert_data: Dict[str, Any]):
         """Publish arbitrage alert to WebSocket clients."""
@@ -107,6 +134,9 @@ class MarketsCoordinator:
             # Start service coordinator
             await self.service_coordinator.start_services()
             
+            # Wire processors for arbitrage detection (after platforms are initialized)
+            self._wire_processors()
+            
             self._async_started = True
             logger.info("✅ MarketsCoordinator async components started successfully")
             
@@ -114,7 +144,7 @@ class MarketsCoordinator:
             logger.error(f"❌ Failed to start MarketsCoordinator async components: {e}")
             raise
     
-    async def connect(self, market_id: str, platform: str = "polymarket") -> bool:
+    async def connect(self, market_id: str, platform: str) -> bool:
         """
         Connect to a specific market using platform and market ID.
         
@@ -130,19 +160,37 @@ class MarketsCoordinator:
             await self.start_async_components()
         
         try:
+            success = False
             if platform.lower() == "polymarket":
-                return await self.polymarket_platform.connect_market(market_id)
+                success = await self.polymarket_platform.connect_market(market_id)
             elif platform.lower() == "kalshi":
-                return await self.kalshi_platform.connect_market(market_id)
+                success = await self.kalshi_platform.connect_market(market_id)
             else:
                 logger.error(f"Unsupported platform: {platform}")
                 return False
+            
+            # If connection successful, track market and check for arbitrage pair
+            if success:
+                if platform.lower() == "kalshi":
+                    # Extract ticker from market_id for Kalshi
+                    ticker = market_id.removeprefix("kalshi_")
+                    self.current_markets['kalshi'] = ticker
+                    logger.info(f"Tracking Kalshi ticker: {ticker} (from market_id: {market_id})")
+                else:
+                    # Polymarket: parse and clean asset IDs
+                    parsed_assets = self._parse_polymarket_assets(market_id)
+                    self.current_markets['polymarket'] = parsed_assets
+                    logger.info(f"Tracking Polymarket assets: {parsed_assets} (from market_id: {market_id})")
+                
+                self._check_and_add_arbitrage_pair()
+            
+            return success
                 
         except Exception as e:
             logger.error(f"Failed to connect {platform}:{market_id} - {e}")
             return False
     
-    async def disconnect(self, market_id: str, platform: str = "polymarket") -> bool:
+    async def disconnect(self, market_id: str, platform: str) -> bool:
         """
         Disconnect from a specific market.
         
@@ -154,13 +202,29 @@ class MarketsCoordinator:
             bool: True if disconnection successful
         """
         try:
+            success = False
             if platform.lower() == "polymarket":
-                return await self.polymarket_platform.disconnect_market(market_id)
+                success = await self.polymarket_platform.disconnect_market(market_id)
             elif platform.lower() == "kalshi":
-                return await self.kalshi_platform.disconnect_market(market_id)
+                success = await self.kalshi_platform.disconnect_market(market_id)
             else:
                 logger.error(f"Unsupported platform: {platform}")
                 return False
+            
+            # If disconnection successful, clear tracking and remove arbitrage pair
+            if success:
+                if platform.lower() == "kalshi":
+                    # Log both market_id and ticker for clarity
+                    old_ticker = self.current_markets['kalshi']
+                    self.current_markets['kalshi'] = None
+                    logger.info(f"Stopped tracking Kalshi ticker: {old_ticker} (market_id: {market_id})")
+                else:
+                    self.current_markets['polymarket'] = None
+                    logger.info(f"Stopped tracking Polymarket market: {market_id}")
+                
+                self._remove_current_arbitrage_pair()
+            
+            return success
                 
         except Exception as e:
             logger.error(f"Error disconnecting {platform}:{market_id} - {e}")
@@ -178,14 +242,20 @@ class MarketsCoordinator:
             await self.kalshi_platform.disconnect_all()
             await self.polymarket_platform.disconnect_all()
             
+            # Clear market tracking and arbitrage pairs
+            self.current_markets = {'kalshi': None, 'polymarket': None}
+            self._remove_current_arbitrage_pair()
+            
             self._async_started = False
-            logger.info("All clients disconnected")
+            logger.info("All clients disconnected and market tracking cleared")
             
         except Exception as e:
             logger.error(f"Error during disconnect_all: {e}")
     
     def get_status(self) -> Dict[str, Any]:
         """Get status of all connections and the coordinator."""
+        connection_state = self.get_connection_state()
+        
         return {
             "async_started": self._async_started,
             "kalshi_platform": self.kalshi_platform.get_stats(),
@@ -195,7 +265,9 @@ class MarketsCoordinator:
             "total_connections": (
                 self.kalshi_platform.get_stats().get("total_connections", 0) +
                 self.polymarket_platform.get_stats().get("total_connections", 0)
-            )
+            ),
+            "current_markets": self.current_markets,
+            "connection_state": connection_state
         }
     
     # Legacy interface methods for backward compatibility
@@ -279,6 +351,145 @@ class MarketsCoordinator:
     def get_arbitrage_stats(self):
         """Get arbitrage manager statistics."""
         return self.service_coordinator.get_arbitrage_stats()
+    
+    # Dynamic Arbitrage Pair Management
+    def ticker_to_sid(self, ticker: str) -> int:
+        """Convert ticker to SID using same logic as platform manager."""
+        return hash(ticker) % 1000000
+    
+    def _parse_polymarket_assets(self, market_identifier: str) -> str:
+        """
+        Parse Polymarket assets from market identifier, similar to platform manager logic.
+        
+        Args:
+            market_identifier: Market ID in various formats
+            
+        Returns:
+            str: Comma-separated asset IDs
+        """
+        import json
+        
+        try:
+            # Try parsing as JSON first
+            if market_identifier.startswith('[') and market_identifier.endswith(']'):
+                token_ids = json.loads(market_identifier)
+                return ','.join(token_ids)
+        except (json.JSONDecodeError, TypeError):
+            pass
+        
+        # Fall back to comma-separated parsing
+        if ',' in market_identifier:
+            tokens = [token.strip() for token in market_identifier.split(',')]
+            # Remove polymarket prefix from first token if present
+            if tokens and tokens[0].startswith('polymarket_'):
+                tokens[0] = tokens[0].removeprefix('polymarket_')
+            return ','.join(tokens)
+        
+        # Single token ID - remove prefix
+        single_token = market_identifier.removeprefix('polymarket_')
+        # For single token, assume it's YES and create a placeholder NO
+        # This is a fallback - normally we expect comma-separated pairs
+        logger.warning(f"Single Polymarket token provided: {single_token}. Creating placeholder pair.")
+        return f"{single_token},placeholder_no"
+    
+    def _check_and_add_arbitrage_pair(self):
+        """
+        Check if both platforms have connected markets and add arbitrage pair if so.
+        """
+        kalshi_ticker = self.current_markets['kalshi']
+        polymarket_market = self.current_markets['polymarket']
+        
+        if kalshi_ticker and polymarket_market:
+            # Parse Polymarket market (format: "yes_asset_id,no_asset_id")
+            try:
+                poly_parts = polymarket_market.split(',')
+                if len(poly_parts) != 2:
+                    logger.warning(f"Invalid Polymarket asset format: {polymarket_market}. Expected 'yes_id,no_id' but got {len(poly_parts)} parts")
+                    return
+                
+                yes_asset_id, no_asset_id = poly_parts
+                
+                # Convert ticker to SID for ArbitrageManager
+                kalshi_sid = self.ticker_to_sid(kalshi_ticker)
+                
+                # Create a simple pair name using ticker and shortened asset ID
+                yes_asset_short = yes_asset_id[:12] + "..." if len(yes_asset_id) > 12 else yes_asset_id
+                pair_name = f"auto_pair_{kalshi_ticker}_{yes_asset_short}"
+                
+                logger.info(f"Both platforms connected - adding arbitrage pair: {pair_name} (ticker: {kalshi_ticker} → SID: {kalshi_sid})")
+                self.add_arbitrage_market_pair(pair_name, kalshi_sid, yes_asset_id, no_asset_id)
+                
+            except (ValueError, IndexError) as e:
+                logger.error(f"Error parsing market IDs for arbitrage pair: {e}")
+        else:
+            logger.debug(f"Waiting for both platforms - Kalshi ticker: {kalshi_ticker}, Polymarket: {polymarket_market}")
+    
+    def _remove_current_arbitrage_pair(self):
+        """
+        Remove the current arbitrage pair if one exists.
+        """
+        # Get all current arbitrage pairs and remove them (should be only one in this simple model)
+        if self.service_coordinator.arbitrage_service:
+            current_pairs = list(self.service_coordinator.arbitrage_service.market_pairs.keys())
+            for pair_name in current_pairs:
+                logger.info(f"Removing arbitrage pair: {pair_name}")
+                self.remove_arbitrage_market_pair(pair_name)
+    
+    # Connection State Tracking Methods  
+    def get_connection_state(self) -> Dict[str, Any]:
+        """
+        Get connection state for both platforms.
+        
+        Returns:
+            Dict containing current connection state
+        """
+        kalshi_ticker = self.current_markets['kalshi']
+        polymarket_market = self.current_markets['polymarket']
+        both_connected = kalshi_ticker is not None and polymarket_market is not None
+        
+        # Get active arbitrage pairs
+        active_pairs = []
+        if self.service_coordinator.arbitrage_service:
+            active_pairs = list(self.service_coordinator.arbitrage_service.market_pairs.keys())
+        
+        # Include SID for debugging/status
+        kalshi_sid = self.ticker_to_sid(kalshi_ticker) if kalshi_ticker else None
+        
+        return {
+            'kalshi_ticker': kalshi_ticker,
+            'kalshi_sid': kalshi_sid,
+            'polymarket_market': polymarket_market,
+            'both_connected': both_connected,
+            'active_arbitrage_pairs': active_pairs,
+            'arbitrage_pair_active': len(active_pairs) > 0
+        }
+    
+    def is_market_connected(self, market_id: str, platform: str) -> bool:
+        """
+        Check if a specific market is connected on a platform.
+        
+        Args:
+            market_id: Market identifier (for Kalshi, can be ticker or market_id)
+            platform: "kalshi" or "polymarket"
+            
+        Returns:
+            bool: True if market is connected and tracked
+        """
+        if platform.lower() == "kalshi":
+            # For Kalshi, accept either ticker or market_id format
+            ticker = market_id.removeprefix("kalshi_")  # Handle both formats
+            return self.current_markets.get('kalshi') == ticker
+        else:
+            return self.current_markets.get(platform.lower()) == market_id
+    
+    def get_current_markets(self) -> Dict[str, str]:
+        """
+        Get currently tracked markets for both platforms.
+        
+        Returns:
+            Dict with platform names as keys and current identifiers as values (ticker for Kalshi, market_id for Polymarket)
+        """
+        return self.current_markets.copy()
 
 # Convenience function for quick setup (backward compatibility)
 def create_markets_manager(config_path: Optional[str] = None) -> MarketsCoordinator:
