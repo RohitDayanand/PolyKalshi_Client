@@ -37,7 +37,7 @@ class ServiceCoordinator:
         if arbitrage_service:
             self.arbitrage_service = arbitrage_service
         else:
-            self.arbitrage_service = ArbitrageManager(min_spread_threshold=0.02)
+            self.arbitrage_service = ArbitrageManager()
         
         # Service state tracking
         self.services_started = False
@@ -164,9 +164,9 @@ class ServiceCoordinator:
         }
     
     # Arbitrage service delegation methods (for backward compatibility)
-    def add_arbitrage_market_pair(self, market_pair: str, kalshi_sid: int, polymarket_yes_asset_id: str, polymarket_no_asset_id: str):
+    def add_arbitrage_market_pair(self, market_pair: str, kalshi_ticker: str, polymarket_yes_asset_id: str, polymarket_no_asset_id: str):
         """Add a market pair for arbitrage monitoring."""
-        return self.arbitrage_service.add_market_pair(market_pair, kalshi_sid, polymarket_yes_asset_id, polymarket_no_asset_id)
+        return self.arbitrage_service.add_market_pair(market_pair, kalshi_ticker, polymarket_yes_asset_id, polymarket_no_asset_id)
     
     def remove_arbitrage_market_pair(self, market_pair: str):
         """Remove a market pair from arbitrage monitoring."""

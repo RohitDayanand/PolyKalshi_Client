@@ -228,10 +228,60 @@ class ChannelManager:
             logger.info(f"📻 CHANNEL MANAGER DEBUG: Total subscriptions: {len(self.subscriptions)}")
     
     async def broadcast_arbitrage_alert(self, alert_data: Dict):
-        """Broadcast arbitrage alert to all connected clients"""
+        """
+        Broadcast arbitrage alert to all connected WebSocket clients.
+        
+        This method performs the final data transformation and broadcasting of arbitrage alerts
+        to frontend clients. It handles the conversion from EventBus format to WebSocket format
+        and ensures all connected clients receive the alert.
+        
+        Data transformation process:
+        1. Takes alert_data containing 'alert' key with ArbitrageOpportunity dataclass
+        2. Extracts fields from the ArbitrageOpportunity object  
+        3. Creates a flattened WebSocket message with 'type': 'arbitrage_alert'
+        4. Broadcasts to all connected WebSocket clients
+        
+        Input format (from websocket_server.publish_arbitrage_alert):
+        {
+            'alert': ArbitrageOpportunity(
+                market_pair="PRES24-DJT",
+                timestamp="2025-01-15T10:30:00Z",
+                spread=0.035,
+                direction="kalshi_to_polymarket", 
+                side="yes",
+                kalshi_price=0.520,
+                polymarket_price=0.480,
+                kalshi_market_id=12345,
+                polymarket_asset_id="asset_abc123",
+                confidence=1.0,
+                execution_size=100.0,
+                execution_info={...}
+            ),
+            'market_pair': "PRES24-DJT",    # Redundant metadata
+            'spread': 0.035,                # Redundant metadata  
+            'direction': "kalshi_to_polymarket",  # Redundant metadata
+            'timestamp': "2025-01-15T10:30:00Z"   # Redundant metadata
+        }
+        
+        Output WebSocket message format sent to frontend:
+        {
+            "type": "arbitrage_alert",
+            "alert": {...},  # Complete ArbitrageOpportunity serialized as dict
+            "market_pair": "PRES24-DJT",
+            "spread": 0.035,
+            "direction": "kalshi_to_polymarket", 
+            "timestamp": "2025-01-15T10:30:00Z"
+        }
+        
+        Frontend parsing: The arbitrage-alerts.tsx component should parse the 'alert' 
+        field to extract all arbitrage opportunity details.
+        
+        Args:
+            alert_data (Dict): Alert data containing ArbitrageOpportunity and metadata
+        """
         logger.info(f"🚨 CHANNEL MANAGER: Broadcasting arbitrage alert for {alert_data.get('market_pair')}")
         
-        # For now, broadcast to all connections (can be filtered later)
+        # Create WebSocket message with proper type identifier for frontend parsing
         alert_message = {
             "type": "arbitrage_alert",
             **alert_data

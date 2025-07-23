@@ -32,7 +32,7 @@ class ArbitrageManager:
     arbitrage detection across multiple market pairs.
     """
     
-    def __init__(self, min_spread_threshold: float = 0.02, event_bus: Optional[EventBus] = None, 
+    def __init__(self, min_spread_threshold: float = 0.05, event_bus: Optional[EventBus] = None, 
                  kalshi_processor=None, polymarket_processor=None):
         """
         Initialize ArbitrageManager.
@@ -44,7 +44,7 @@ class ArbitrageManager:
             polymarket_processor: Polymarket processor with get_orderbook() method (optional)
         """
         self.event_bus = event_bus or global_event_bus
-        self.market_pairs: Dict[str, Dict[str, Any]] = {}  # market_pair -> {kalshi_sid, polymarket_yes_asset_id, polymarket_no_asset_id}
+        self.market_pairs: Dict[str, Dict[str, Any]] = {}  # market_pair -> {kalshi_ticker, polymarket_yes_asset_id, polymarket_no_asset_id}
         # No deduplication state; stateless except for market_pairs
         
         # Processor references for accessing OrderbookState objects
@@ -91,16 +91,16 @@ class ArbitrageManager:
         Find relevant market pairs and trigger arbitrage checks.
         """
         try:
-            sid = event_data.get('sid')
+            ticker = event_data.get('ticker')
             
-            if not sid:
-                logger.warning("Invalid arbitrage.kalshi_updated event data - missing sid")
+            if not ticker:
+                logger.warning("Invalid arbitrage.kalshi_updated event data - missing ticker")
                 return
             
             # Find all market pairs that involve this Kalshi market
             relevant_pairs = [
                 pair_name for pair_name, config in self.market_pairs.items()
-                if config.get('kalshi_sid') == sid
+                if config.get('kalshi_ticker') == ticker
             ]
             
             for pair_name in relevant_pairs:
@@ -148,18 +148,18 @@ class ArbitrageManager:
             return
         
         pair_config = self.market_pairs[pair_name]
-        kalshi_sid = pair_config['kalshi_sid']
+        kalshi_ticker = pair_config['kalshi_ticker']
         poly_yes_asset_id = pair_config['polymarket_yes_asset_id']
         poly_no_asset_id = pair_config['polymarket_no_asset_id']
         
         # Get fresh OrderbookState objects from processors
-        kalshi_orderbook_state = self.kalshi_processor.get_orderbook(kalshi_sid)
+        kalshi_orderbook_state = self.kalshi_processor.get_orderbook(kalshi_ticker)
         poly_yes_orderbook_state = self.polymarket_processor.get_orderbook(poly_yes_asset_id)
         poly_no_orderbook_state = self.polymarket_processor.get_orderbook(poly_no_asset_id)
         
         # Validate we have orderbook states
         if not kalshi_orderbook_state:
-            logger.debug(f"No Kalshi orderbook state for sid={kalshi_sid} in pair {pair_name}")
+            logger.debug(f"No Kalshi orderbook state for ticker={kalshi_ticker} in pair {pair_name}")
             return
         if not poly_yes_orderbook_state:
             logger.debug(f"No Polymarket YES orderbook state for asset_id={poly_yes_asset_id} in pair {pair_name}")
@@ -185,22 +185,22 @@ class ArbitrageManager:
     
     # === LIFECYCLE MANAGEMENT METHODS ===
     
-    def add_market_pair(self, market_pair: str, kalshi_sid: int, polymarket_yes_asset_id: str, polymarket_no_asset_id: str):
+    def add_market_pair(self, market_pair: str, kalshi_ticker: str, polymarket_yes_asset_id: str, polymarket_no_asset_id: str):
         """
         Add a market pair for arbitrage monitoring.
         
         Args:
             market_pair: Human-readable market pair identifier
-            kalshi_sid: Kalshi market subscription ID
+            kalshi_ticker: Kalshi market ticker
             polymarket_yes_asset_id: Polymarket YES asset ID
             polymarket_no_asset_id: Polymarket NO asset ID
         """
         self.market_pairs[market_pair] = {
-            'kalshi_sid': kalshi_sid,
+            'kalshi_ticker': kalshi_ticker,
             'polymarket_yes_asset_id': polymarket_yes_asset_id,
             'polymarket_no_asset_id': polymarket_no_asset_id
         }
-        logger.info(f"Added market pair: {market_pair} -> Kalshi:{kalshi_sid}, Poly:{polymarket_yes_asset_id}/{polymarket_no_asset_id}")
+        logger.info(f"Added market pair: {market_pair} -> Kalshi:{kalshi_ticker}, Poly:{polymarket_yes_asset_id}/{polymarket_no_asset_id}")
     
     def remove_market_pair(self, market_pair: str):
         """Remove a market pair from monitoring."""
@@ -227,18 +227,18 @@ class ArbitrageManager:
             return []
         
         pair_config = self.market_pairs[market_pair]
-        kalshi_sid = pair_config['kalshi_sid']
+        kalshi_ticker = pair_config['kalshi_ticker']
         poly_yes_asset_id = pair_config['polymarket_yes_asset_id']
         poly_no_asset_id = pair_config['polymarket_no_asset_id']
         
         # Get fresh OrderbookState objects
-        kalshi_orderbook_state = self.kalshi_processor.get_orderbook(kalshi_sid)
+        kalshi_orderbook_state = self.kalshi_processor.get_orderbook(kalshi_ticker)
         poly_yes_orderbook_state = self.polymarket_processor.get_orderbook(poly_yes_asset_id)
         poly_no_orderbook_state = self.polymarket_processor.get_orderbook(poly_no_asset_id)
         
         # Skip if any orderbook is missing
         if not kalshi_orderbook_state:
-            logger.debug(f"No Kalshi orderbook state for sid={kalshi_sid}")
+            logger.debug(f"No Kalshi orderbook state for ticker={kalshi_ticker}")
             return []
         if not poly_yes_orderbook_state:
             logger.debug(f"No Polymarket YES orderbook state for asset_id={poly_yes_asset_id}")

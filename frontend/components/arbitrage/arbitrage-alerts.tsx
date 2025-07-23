@@ -1,11 +1,13 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useSelector, useDispatch } from "react-redux"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Button } from "@/components/ui/button"
 import { Trash2, TrendingUp, TrendingDown, ArrowRight } from "lucide-react"
+import { selectArbitrageAlerts, selectIsConnected, clearArbitrageAlerts } from "@/lib/store/websocketSlice"
 
 interface ArbitrageAlert {
   market_pair: string
@@ -25,52 +27,11 @@ interface ArbitrageAlertsProps {
 }
 
 export function ArbitrageAlerts({ className }: ArbitrageAlertsProps) {
-  const [alerts, setAlerts] = useState<ArbitrageAlert[]>([])
-  const [isConnected, setIsConnected] = useState(false)
-
-  // Mock data for development - will be replaced with real WebSocket connection
-  useEffect(() => {
-    // Simulate some initial alerts for UI testing
-    const mockAlerts: ArbitrageAlert[] = [
-      {
-        market_pair: "PRES24-DJT",
-        timestamp: new Date().toISOString(),
-        spread: 0.035,
-        direction: "kalshi_to_polymarket",
-        side: "yes",
-        kalshi_price: 0.52,
-        polymarket_price: 0.48,
-        confidence: 1.0
-      },
-      {
-        market_pair: "PRES24-HARRIS",
-        timestamp: new Date(Date.now() - 300000).toISOString(),
-        spread: 0.022,
-        direction: "polymarket_to_kalshi", 
-        side: "no",
-        kalshi_price: 0.45,
-        polymarket_price: 0.47,
-        confidence: 1.0
-      }
-    ]
-    setAlerts(mockAlerts)
-  }, [])
-
-  // TODO: Implement WebSocket connection for real-time alerts
-  // useEffect(() => {
-  //   const ws = new WebSocket('ws://localhost:8000/ws/ticker')
-  //   
-  //   ws.onopen = () => setIsConnected(true)
-  //   ws.onclose = () => setIsConnected(false)
-  //   ws.onmessage = (event) => {
-  //     const data = JSON.parse(event.data)
-  //     if (data.type === 'arbitrage_alert') {
-  //       setAlerts(prev => [data, ...prev].slice(0, 50)) // Keep only last 50 alerts
-  //     }
-  //   }
-  //   
-  //   return () => ws.close()
-  // }, [])
+  const dispatch = useDispatch()
+  
+  // Get alerts and connection status from Redux store
+  const alerts = useSelector(selectArbitrageAlerts)
+  const isConnected = useSelector(selectIsConnected)
 
   const formatTimestamp = (timestamp: string) => {
     return new Date(timestamp).toLocaleTimeString()
@@ -100,7 +61,7 @@ export function ArbitrageAlerts({ className }: ArbitrageAlertsProps) {
   }
 
   const clearAlerts = () => {
-    setAlerts([])
+    dispatch(clearArbitrageAlerts())
   }
 
   return (

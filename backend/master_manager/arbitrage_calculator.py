@@ -8,7 +8,7 @@ event handling, callbacks, or state management dependencies.
 import logging
 from typing import Dict, Any, Optional, List
 from datetime import datetime
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 
 from .kalshi_client.models.orderbook_state import OrderbookSnapshot as KalshiOrderbookSnapshot
 from .polymarket_client.models.orderbook_state import PolymarketOrderbookSnapshot
@@ -21,7 +21,48 @@ def arbitrage_calculation_log(message: str) -> None:
 
 @dataclass
 class ArbitrageOpportunity:
-    """Data class representing a calculated arbitrage opportunity."""
+    """
+    Data class representing a calculated arbitrage opportunity.
+    
+    This structure flows through the entire arbitrage alert system:
+    ArbitrageCalculator -> ArbitrageDetector -> ArbitrageManager -> EventBus -> 
+    MarketsCoordinator -> WebSocket -> Frontend
+    
+    Attributes:
+        market_pair (str): Human-readable market pair identifier (e.g., "PRES24-DJT")
+        timestamp (str): ISO timestamp when the opportunity was detected
+        spread (float): Profit spread as decimal (0.035 = 3.5% profit opportunity)
+        direction (str): Trading direction - "kalshi_to_polymarket" or "polymarket_to_kalshi"
+        side (str): Contract side - "yes" or "no" 
+        kalshi_price (Optional[float]): Kalshi price as decimal (0.0-1.0)
+        polymarket_price (Optional[float]): Polymarket price as decimal (0.0-1.0)
+        kalshi_market_id (Optional[int]): Kalshi market SID for execution
+        polymarket_asset_id (Optional[str]): Polymarket asset ID for execution
+        confidence (float): Confidence level (1.0 = high confidence, default: 1.0)
+        execution_size (Optional[float]): Minimum executable size across both platforms
+        execution_info (Optional[Dict[str, Any]]): Detailed execution constraints and liquidity info
+        
+    Example:
+        {
+            "market_pair": "PRES24-DJT",
+            "timestamp": "2025-01-15T10:30:00Z",
+            "spread": 0.035,
+            "direction": "kalshi_to_polymarket", 
+            "side": "yes",
+            "kalshi_price": 0.520,
+            "polymarket_price": 0.480,
+            "kalshi_market_id": 12345,
+            "polymarket_asset_id": "asset_abc123",
+            "confidence": 1.0,
+            "execution_size": 100.0,
+            "execution_info": {
+                "kalshi_size": 150.0,
+                "polymarket_size": 100.0,
+                "min_execution_size": 100.0,
+                "limiting_factor": "polymarket"
+            }
+        }
+    """
     market_pair: str
     timestamp: str
     spread: float
@@ -34,6 +75,10 @@ class ArbitrageOpportunity:
     confidence: float = 1.0
     execution_size: Optional[float] = None
     execution_info: Optional[Dict[str, Any]] = None
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert ArbitrageOpportunity to JSON-serializable dictionary."""
+        return asdict(self)
 
 class ArbitrageCalculator:
     """
@@ -46,7 +91,7 @@ class ArbitrageCalculator:
     - Threading or async coordination
     """
     
-    def __init__(self, min_spread_threshold: float = 0.02):
+    def __init__(self, min_spread_threshold):
         """
         Initialize the arbitrage calculator.
         
@@ -181,8 +226,8 @@ class ArbitrageCalculator:
         # Strategy 1: Sell Kalshi YES + Buy Polymarket NO
         if spreads['strategy_1'] >= self.min_spread_threshold:
             execution_info = self._calculate_execution_size(
-                kalshi_snapshot, poly_yes_snapshot, poly_no_snapshot,
-                kalshi_price=int(prices['k_yes_bid'] * 100), poly_no_price=prices['poly_no_ask'], side="bid"
+                kalshi_snapshot, "yes", int(prices['k_yes_bid'] * 100),
+                poly_no_snapshot, "ask", prices['poly_no_ask']
             )
             
             opportunity = ArbitrageOpportunity(
@@ -204,8 +249,8 @@ class ArbitrageCalculator:
         # Strategy 2: Sell Kalshi NO + Buy Polymarket YES
         if spreads['strategy_2'] >= self.min_spread_threshold:
             execution_info = self._calculate_execution_size(
-                kalshi_snapshot, poly_yes_snapshot, poly_no_snapshot,
-                kalshi_price=int(prices['k_no_bid'] * 100), poly_yes_price=prices['poly_yes_ask'], side="bid"
+                kalshi_snapshot, "no", int(prices['k_no_bid'] * 100),
+                poly_yes_snapshot, "ask", prices['poly_yes_ask']
             )
             
             opportunity = ArbitrageOpportunity(
@@ -227,8 +272,8 @@ class ArbitrageCalculator:
         # Strategy 3: Sell Polymarket YES + Buy Kalshi NO
         if spreads['strategy_3'] >= self.min_spread_threshold:
             execution_info = self._calculate_execution_size(
-                kalshi_snapshot, poly_yes_snapshot, poly_no_snapshot,
-                kalshi_price=int(prices['k_no_ask'] * 100), poly_yes_price=prices['poly_yes_bid'], side="ask"
+                kalshi_snapshot, "no", int(prices['k_no_ask'] * 100),
+                poly_yes_snapshot, "bid", prices['poly_yes_bid']
             )
             
             opportunity = ArbitrageOpportunity(
@@ -250,8 +295,8 @@ class ArbitrageCalculator:
         # Strategy 4: Sell Polymarket NO + Buy Kalshi YES
         if spreads['strategy_4'] >= self.min_spread_threshold:
             execution_info = self._calculate_execution_size(
-                kalshi_snapshot, poly_yes_snapshot, poly_no_snapshot,
-                kalshi_price=int(prices['k_yes_ask'] * 100), poly_no_price=prices['poly_no_bid'], side="ask"
+                kalshi_snapshot, "yes", int(prices['k_yes_ask'] * 100),
+                poly_no_snapshot, "bid", prices['poly_no_bid']
             )
             
             opportunity = ArbitrageOpportunity(
@@ -290,112 +335,87 @@ class ArbitrageCalculator:
         arbitrage_calculation_log(f"   4. Sell Poly NO + Buy Kalshi YES: {prices['poly_no_bid']:.3f} + {prices['k_yes_ask']:.3f} = {prices['poly_no_bid'] + prices['k_yes_ask']:.3f} → spread={spreads['strategy_4']:.3f}")
         arbitrage_calculation_log(f"   🎯 Min threshold: {self.min_spread_threshold:.3f}")
     
-    def _calculate_execution_size(self, kalshi_snapshot: KalshiOrderbookSnapshot, 
-                                poly_yes_snapshot: PolymarketOrderbookSnapshot, 
-                                poly_no_snapshot: PolymarketOrderbookSnapshot,
-                                kalshi_price: Optional[int] = None, 
-                                poly_yes_price: Optional[float] = None,
-                                poly_no_price: Optional[float] = None,
-                                side: str = "bid") -> Dict[str, Optional[float]]:
+    def _calculate_execution_size(self, kalshi_snapshot: KalshiOrderbookSnapshot,
+                                kalshi_contract_type: str, kalshi_price: int,
+                                poly_snapshot: PolymarketOrderbookSnapshot, poly_side: str, poly_price: float) -> Dict[str, Optional[float]]:
         """
-        Calculate execution sizes as 50% of available orderbook depth at specific price levels.
+        Calculate execution sizes for a specific arbitrage strategy.
         
         Args:
             kalshi_snapshot: Kalshi orderbook snapshot
-            poly_yes_snapshot: Polymarket YES asset snapshot  
-            poly_no_snapshot: Polymarket NO asset snapshot
-            kalshi_price: Specific Kalshi price level (cents, e.g., 65)
-            poly_yes_price: Specific Polymarket YES price level (decimal, e.g., 0.62)
-            poly_no_price: Specific Polymarket NO price level (decimal, e.g., 0.37)
-            side: "bid" or "ask" - which side of orderbook to check
+            kalshi_contract_type: "yes" or "no" - which Kalshi contract we're trading
+            kalshi_price: Kalshi price level in cents (1-99)
+            poly_snapshot: Polymarket orderbook snapshot (YES or NO asset)
+            poly_side: "bid" or "ask" - which side we're taking  
+            poly_price: Polymarket price level as decimal (0.0-1.0)
             
         Returns:
             Dict with execution sizes and limiting factor
         """
         try:
-            # Use best prices if specific prices not provided
-            if kalshi_price is None:
-                if side == "bid":
-                    kalshi_price = kalshi_snapshot.best_yes_bid or kalshi_snapshot.best_no_bid
-                else:
-                    kalshi_price = kalshi_snapshot.best_yes_bid or kalshi_snapshot.best_no_bid
-                    
-            if poly_yes_price is None:
-                poly_yes_price = float(poly_yes_snapshot.best_bid_price) if side == "bid" else float(poly_yes_snapshot.best_ask_price)
-                
-            if poly_no_price is None:
-                poly_no_price = float(poly_no_snapshot.best_bid_price) if side == "bid" else float(poly_no_snapshot.best_ask_price)
+            # Get Kalshi liquidity at specific contract type and price
+            kalshi_size = self._get_kalshi_liquidity(kalshi_snapshot, kalshi_contract_type, kalshi_price)
             
-            # Get orderbook depth at specific price levels
-            kalshi_size = self._get_kalshi_depth_at_price(kalshi_snapshot, kalshi_price, side)
-            poly_yes_size = self._get_polymarket_depth_at_price(poly_yes_snapshot, poly_yes_price, side)
-            poly_no_size = self._get_polymarket_depth_at_price(poly_no_snapshot, poly_no_price, side)
+            # Get Polymarket liquidity at specific side and price
+            poly_size = self._get_polymarket_liquidity(poly_snapshot, poly_side, poly_price)
             
-            # Calculate 50% of available depth for each
-            kalshi_execution = kalshi_size * 0.5 if kalshi_size else 0.0
-            poly_yes_execution = poly_yes_size * 0.5 if poly_yes_size else 0.0
-            poly_no_execution = poly_no_size * 0.5 if poly_no_size else 0.0
+            # Return the limiting factor (minimum of the two)
+            min_size = min(kalshi_size, poly_size) if kalshi_size > 0 and poly_size > 0 else 0.0
             
-            # Determine limiting factor
-            sizes = {
-                'kalshi': kalshi_execution,
-                'poly_yes': poly_yes_execution, 
-                'poly_no': poly_no_execution
-            }
-            limiting_factor = min(sizes.keys(), key=lambda k: sizes[k]) if any(sizes.values()) else 'none'
-            
-            logger.debug(f"💰 EXECUTION SIZE CALC: kalshi={kalshi_execution:.2f}, poly_yes={poly_yes_execution:.2f}, poly_no={poly_no_execution:.2f}, limiting={limiting_factor}")
+            logger.debug(f"💰 EXECUTION SIZE: kalshi_{kalshi_contract_type}={kalshi_size:.2f}, poly={poly_size:.2f}, min={min_size:.2f}")
             
             return {
-                'kalshi_size': kalshi_execution,
-                'poly_yes_size': poly_yes_execution,
-                'poly_no_size': poly_no_execution,
-                'limiting_factor': limiting_factor,
-                'min_execution_size': min(sizes.values()) if any(sizes.values()) else 0.0
+                'kalshi_size': kalshi_size,
+                'polymarket_size': poly_size,
+                'min_execution_size': min_size,
+                'limiting_factor': 'kalshi' if kalshi_size < poly_size else 'polymarket'
             }
             
         except Exception as e:
             logger.error(f"Error calculating execution size: {e}")
             return {
-                'kalshi_size': None,
-                'poly_yes_size': None, 
-                'poly_no_size': None,
-                'limiting_factor': 'error',
-                'min_execution_size': 0.0
+                'kalshi_size': 0.0,
+                'polymarket_size': 0.0,
+                'min_execution_size': 0.0,
+                'limiting_factor': 'error'
             }
     
-    def _get_kalshi_depth_at_price(self, snapshot: KalshiOrderbookSnapshot, price: int, side: str) -> float:
-        """Get orderbook depth at specific Kalshi price level."""
+    def _get_kalshi_liquidity(self, snapshot: KalshiOrderbookSnapshot, contract_type: str, price: int) -> float:
+        """Get Kalshi liquidity for specific contract type at price level."""
         if price is None:
             return 0.0
             
-        total_size = 0.0
-        
-        # Check YES contracts
-        if price in snapshot.yes_contracts:
-            level = snapshot.yes_contracts[price]
-            total_size += level.size_float
-            
-        # Check NO contracts  
-        if price in snapshot.no_contracts:
-            level = snapshot.no_contracts[price]
-            total_size += level.size_float
-            
-        return total_size
-    
-    def _get_polymarket_depth_at_price(self, snapshot: PolymarketOrderbookSnapshot, price: float, side: str) -> float:
-        """Get orderbook depth at specific Polymarket price level."""
-        if price is None:
-            return 0.0
-            
-        price_str = str(price)
-        
-        # Choose bid or ask side
-        if side == "bid":
-            if price_str in snapshot.bids:
-                return snapshot.bids[price_str].size_float
-        else:  # ask
-            if price_str in snapshot.asks:
-                return snapshot.asks[price_str].size_float
+        # Choose YES or NO contracts based on what we're trading
+        if contract_type.lower() == "yes":
+            if price in snapshot.yes_contracts:
+                return snapshot.yes_contracts[price].size_float
+        elif contract_type.lower() == "no":
+            if price in snapshot.no_contracts:
+                return snapshot.no_contracts[price].size_float
                 
+        return 0.0
+    
+    def _get_polymarket_liquidity(self, snapshot: PolymarketOrderbookSnapshot, side: str, price: float) -> float:
+        """Get Polymarket liquidity for specific side at price level."""
+        if price is None:
+            logger.info(f"[POLYMARKET ORDERBOOK] Price is None, returning 0.0")
+            return 0.0
+        
+        # Use the cached best price strings directly (no float conversion issues)
+        if side.lower() == "bid":
+            if snapshot.best_bid_price and snapshot.best_bid_price in snapshot.bids:
+                size = snapshot.bids[snapshot.best_bid_price].size_float
+                #logger.info(f"[POLYMARKET ORDERBOOK] ✅ Using best bid: price={snapshot.best_bid_price}, size={size}")
+                return size
+            else:
+                logger.error(f"[POLYMARKET ORDERBOOK] ❌ No best bid available - string best key cached is None (which is an error) or concurrency leak happened")
+        elif side.lower() == "ask":
+            if snapshot.best_ask_price and snapshot.best_ask_price in snapshot.asks:
+                size = snapshot.asks[snapshot.best_ask_price].size_float
+                logger.info(f"[POLYMARKET ORDERBOOK] ✅ Using best ask: price={snapshot.best_ask_price}, size={size}")
+                return size
+            else:
+                logger.error(f"[POLYMARKET ORDERBOOK] ❌ No best ask available- string best key cached is None (which is an error) or concurrency leak happened")
+                
+        logger.info(f"[POLYMARKET ORDERBOOK] Returning 0.0 - no liquidity found")
         return 0.0

@@ -5,7 +5,8 @@ import {
   disconnect, 
   addTickerUpdate, 
   addConnectionStatus,
-  subscribeToMarket
+  subscribeToMarket,
+  addArbitrageAlert
 } from './websocketSlice'
 import { 
   markWebSocketSubscribed,
@@ -70,7 +71,7 @@ export const websocketMiddleware: Middleware = (store) => (next) => (action) => 
         const message = JSON.parse(event.data)
         console.log('📨 Parsed message:', message)
         
-        // Only handle connection status changes, not ticker updates
+        // Handle different message types
         if (message.type === 'connection_status') {
           console.log('🔄 Handling connection status message:', message)
           store.dispatch(addConnectionStatus(message))
@@ -82,6 +83,32 @@ export const websocketMiddleware: Middleware = (store) => (next) => (action) => 
               status: message.status || 'unknown'
             }))
           }
+        } else if (message.type === 'arbitrage_alert') {
+          console.log('🚨 Handling arbitrage alert message:', message)
+          
+          // Extract alert data from backend format
+          // Backend sends: { type: 'arbitrage_alert', alert: ArbitrageOpportunity, market_pair: ..., etc }
+          // Frontend expects: ArbitrageAlert interface
+          const alertData = message.alert || message
+          
+          // Transform backend format to frontend format if needed
+          const arbitrageAlert = {
+            market_pair: alertData.market_pair || message.market_pair,
+            timestamp: alertData.timestamp || message.timestamp,
+            spread: alertData.spread || message.spread,
+            direction: alertData.direction || message.direction,
+            side: alertData.side || message.side,
+            kalshi_price: alertData.kalshi_price,
+            polymarket_price: alertData.polymarket_price,
+            kalshi_market_id: alertData.kalshi_market_id,
+            polymarket_asset_id: alertData.polymarket_asset_id,
+            confidence: alertData.confidence || 1.0,
+            execution_size: alertData.execution_size,
+            execution_info: alertData.execution_info
+          }
+          
+          console.log('🚨 Transformed arbitrage alert:', arbitrageAlert)
+          store.dispatch(addArbitrageAlert(arbitrageAlert))
         } else {
           console.log('📨 Message type not handled by middleware:', message.type)
         }
