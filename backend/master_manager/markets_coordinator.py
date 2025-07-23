@@ -95,7 +95,32 @@ class MarketsCoordinator:
             logger.error(f"❌ Failed to wire processors: {e}")
     
     async def _publish_arbitrage_alert(self, alert_data: Dict[str, Any]):
-        """Publish arbitrage alert to WebSocket clients."""
+        """
+        Publish arbitrage alert to WebSocket clients via websocket_server module.
+        
+        This method is a bridge between the EventBus and the WebSocket broadcasting system.
+        It receives arbitrage alerts from the ArbitrageDetector via the 'arbitrage.alert' event
+        and forwards them to all connected frontend clients.
+        
+        Data flow:
+        1. Receives alert_data containing ArbitrageOpportunity and metadata
+        2. Calls publish_arbitrage_alert() from websocket_server module  
+        3. websocket_server calls global_channel_manager.broadcast_arbitrage_alert()
+        4. ChannelManager broadcasts to all WebSocket connections
+        5. Frontend receives message with type: 'arbitrage_alert'
+        
+        Expected alert_data structure:
+        {
+            'alert': ArbitrageOpportunity,  # dataclass instance with all arbitrage details
+            'market_pair': str,             # e.g., "PRES24-DJT"
+            'spread': float,                # e.g., 0.035 (3.5% profit)
+            'direction': str,               # "kalshi_to_polymarket" or "polymarket_to_kalshi" 
+            'timestamp': str                # ISO timestamp
+        }
+        
+        Args:
+            alert_data (Dict[str, Any]): Alert data from ArbitrageDetector via EventBus
+        """
         try:
             # Import here to avoid circular dependencies
             from ..websocket_server import publish_arbitrage_alert
@@ -176,8 +201,8 @@ class MarketsCoordinator:
                     ticker = market_id.removeprefix("kalshi_")
                     self.current_markets['kalshi'] = ticker
                     logger.info(f"Tracking Kalshi ticker: {ticker} (from market_id: {market_id})")
-                else:
-                    # Polymarket: parse and clean asset IDs
+                elif platform.lower() == "polymarket":
+                    # Parse Polymarket assets from market_id
                     parsed_assets = self._parse_polymarket_assets(market_id)
                     self.current_markets['polymarket'] = parsed_assets
                     logger.info(f"Tracking Polymarket assets: {parsed_assets} (from market_id: {market_id})")
@@ -270,62 +295,10 @@ class MarketsCoordinator:
             "connection_state": connection_state
         }
     
-    # Legacy interface methods for backward compatibility
-    
-    # Kalshi-specific methods
-    def get_kalshi_orderbook(self, sid: int):
-        """Get current Kalshi orderbook state for a market."""
-        return self.kalshi_platform.get_orderbook(sid)
-    
-    def get_all_kalshi_orderbooks(self):
-        """Get all current Kalshi orderbook states."""
-        return self.kalshi_platform.get_all_orderbooks()
-    
-    def get_kalshi_summary_stats(self, sid: int):
-        """Get yes/no bid/ask/volume summary for a Kalshi market.""" 
-        return self.kalshi_platform.get_summary_stats(sid)
-    
-    def get_all_kalshi_summary_stats(self):
-        """Get summary stats for all active Kalshi markets."""
-        return self.kalshi_platform.get_all_summary_stats()
-    
-    def force_publish_kalshi_market(self, sid: int) -> bool:
-        """Force immediate publication of a Kalshi market (bypasses rate limiting)."""
-        return self.kalshi_platform.force_publish_market(sid)
-    
-    async def restart_kalshi_ticker_publisher(self):
-        """Restart the Kalshi ticker publisher."""
-        await self.kalshi_platform.restart_ticker_publisher()
-    
-    # Polymarket-specific methods
-    def get_polymarket_orderbook(self, asset_id: str):
-        """Get current Polymarket orderbook state for an asset."""
-        return self.polymarket_platform.get_orderbook(asset_id)
-    
-    def get_all_polymarket_orderbooks(self):
-        """Get all current Polymarket orderbook states."""
-        return self.polymarket_platform.get_all_orderbooks()
-    
-    def get_polymarket_market_summary(self, asset_id: str):
-        """Get bid/ask/volume summary for a Polymarket asset."""
-        return self.polymarket_platform.get_market_summary(asset_id)
-    
-    def get_all_polymarket_market_summaries(self):
-        """Get market summaries for all active Polymarket assets."""
-        return self.polymarket_platform.get_all_market_summaries()
-    
-    def force_publish_polymarket_asset(self, asset_id: str) -> bool:
-        """Force immediate publication of a Polymarket asset (bypasses rate limiting)."""
-        return self.polymarket_platform.force_publish_asset(asset_id)
-    
-    async def restart_polymarket_ticker_publisher(self):
-        """Restart the Polymarket ticker publisher."""
-        await self.polymarket_platform.restart_ticker_publisher()
-    
     # Arbitrage Management Methods (delegated to service coordinator)
-    def add_arbitrage_market_pair(self, market_pair: str, kalshi_sid: int, polymarket_yes_asset_id: str, polymarket_no_asset_id: str):
+    def add_arbitrage_market_pair(self, market_pair: str, kalshi_ticker: str, polymarket_yes_asset_id: str, polymarket_no_asset_id: str):
         """Add a market pair for arbitrage monitoring."""
-        return self.service_coordinator.add_arbitrage_market_pair(market_pair, kalshi_sid, polymarket_yes_asset_id, polymarket_no_asset_id)
+        return self.service_coordinator.add_arbitrage_market_pair(market_pair, kalshi_ticker, polymarket_yes_asset_id, polymarket_no_asset_id)
     
     def remove_arbitrage_market_pair(self, market_pair: str):
         """Remove a market pair from arbitrage monitoring."""
@@ -409,15 +382,13 @@ class MarketsCoordinator:
                 
                 yes_asset_id, no_asset_id = poly_parts
                 
-                # Convert ticker to SID for ArbitrageManager
-                kalshi_sid = self.ticker_to_sid(kalshi_ticker)
                 
                 # Create a simple pair name using ticker and shortened asset ID
                 yes_asset_short = yes_asset_id[:12] + "..." if len(yes_asset_id) > 12 else yes_asset_id
                 pair_name = f"auto_pair_{kalshi_ticker}_{yes_asset_short}"
                 
-                logger.info(f"Both platforms connected - adding arbitrage pair: {pair_name} (ticker: {kalshi_ticker} → SID: {kalshi_sid})")
-                self.add_arbitrage_market_pair(pair_name, kalshi_sid, yes_asset_id, no_asset_id)
+                logger.info(f"Both platforms connected - adding arbitrage pair: {pair_name} (ticker: {kalshi_ticker})")
+                self.add_arbitrage_market_pair(pair_name, kalshi_ticker, yes_asset_id, no_asset_id)
                 
             except (ValueError, IndexError) as e:
                 logger.error(f"Error parsing market IDs for arbitrage pair: {e}")

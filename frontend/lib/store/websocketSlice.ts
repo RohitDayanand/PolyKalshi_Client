@@ -7,7 +7,7 @@ import {
 
 // Updated to match our backend API message types
 export interface WebSocketMessage {
-  type: 'ticker_update' | 'connection_status' | 'subscription_confirmed' | 'error'
+  type: 'ticker_update' | 'connection_status' | 'subscription_confirmed' | 'error' | 'arbitrage_alert'
   data?: any
   timestamp: number
   market_id?: string
@@ -22,6 +22,22 @@ export interface WebSocketMessage {
   retry_attempt?: number
 }
 
+// Arbitrage Alert interface matching backend ArbitrageOpportunity
+export interface ArbitrageAlert {
+  market_pair: string
+  timestamp: string
+  spread: number
+  direction: "kalshi_to_polymarket" | "polymarket_to_kalshi"
+  side: "yes" | "no"
+  kalshi_price?: number
+  polymarket_price?: number
+  kalshi_market_id?: number
+  polymarket_asset_id?: string
+  confidence: number
+  execution_size?: number
+  execution_info?: Record<string, any>
+}
+
 export interface WebSocketState {
   isConnected: boolean
   connectionStatus: 'disconnected' | 'connecting' | 'connected' | 'reconnecting' | 'error'
@@ -30,6 +46,8 @@ export interface WebSocketState {
   error: string | null
   reconnectAttempts: number
   maxReconnectAttempts: number
+  arbitrageAlerts: ArbitrageAlert[]
+  lastArbitrageAlert: ArbitrageAlert | null
 }
 
 const initialState: WebSocketState = {
@@ -40,6 +58,8 @@ const initialState: WebSocketState = {
   error: null,
   reconnectAttempts: 0,
   maxReconnectAttempts: 5,
+  arbitrageAlerts: [],
+  lastArbitrageAlert: null,
 }
 
 const websocketSlice = createSlice({
@@ -114,6 +134,18 @@ const websocketSlice = createSlice({
     subscribeToMarket: (_state, _action: PayloadAction<{marketId: string, platform: string}>) => {
       // This will be handled by middleware
     },
+
+    // Arbitrage alert handling
+    addArbitrageAlert: (state, action: PayloadAction<ArbitrageAlert>) => {
+      // Add new alert to the beginning of the array and keep only the last 50
+      state.arbitrageAlerts = [action.payload, ...state.arbitrageAlerts].slice(0, 50)
+      state.lastArbitrageAlert = action.payload
+    },
+
+    clearArbitrageAlerts: (state) => {
+      state.arbitrageAlerts = []
+      state.lastArbitrageAlert = null
+    },
   },
 })
 
@@ -130,6 +162,8 @@ export const {
   addTickerUpdate,
   addConnectionStatus,
   subscribeToMarket,
+  addArbitrageAlert,
+  clearArbitrageAlerts,
 } = websocketSlice.actions
 
 export default websocketSlice.reducer
@@ -151,3 +185,5 @@ export const selectMessagesByType = (state: any, type: WebSocketMessage['type'])
 export const selectReconnectAttempts = (state: any) => state.websocket.reconnectAttempts
 export const selectCanReconnect = (state: any) =>
   state.websocket.reconnectAttempts < state.websocket.maxReconnectAttempts
+export const selectArbitrageAlerts = (state: any) => state.websocket.arbitrageAlerts
+export const selectLastArbitrageAlert = (state: any) => state.websocket.lastArbitrageAlert

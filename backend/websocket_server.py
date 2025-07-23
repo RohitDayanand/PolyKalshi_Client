@@ -712,22 +712,44 @@ async def publish_ticker_update(ticker_data: dict):
 
 async def publish_arbitrage_alert(alert_data: dict):
     """
-    Publish arbitrage alert to WebSocket clients
+    Publish arbitrage alert to WebSocket clients via the global ChannelManager.
     
-    Expected format:
+    This function serves as the final step in the arbitrage alert pipeline before 
+    reaching frontend clients. It converts the alert_data from the EventBus format
+    to the WebSocket message format expected by frontend components.
+    
+    Data transformation:
+    - Input: EventBus alert_data with 'alert' key containing ArbitrageOpportunity
+    - Output: WebSocket message with 'type': 'arbitrage_alert' and flattened data
+    
+    Expected input format (from MarketsCoordinator):
+    {
+        "alert": ArbitrageOpportunity,  # dataclass instance
+        "market_pair": "PRES24-DJT", 
+        "spread": 0.035,
+        "direction": "kalshi_to_polymarket",
+        "timestamp": "2025-01-15T10:30:00Z"
+    }
+    
+    WebSocket message format sent to frontend:
     {
         "type": "arbitrage_alert",
-        "market_pair": "some_market_pair",
-        "timestamp": "ISO timestamp",
-        "spread": float,
-        "direction": "kalshi_to_polymarket" or "polymarket_to_kalshi",
-        "side": "yes" or "no",
-        "kalshi_price": float,
-        "polymarket_price": float,
-        "kalshi_market_id": int,
-        "polymarket_asset_id": str,
-        "confidence": float
+        "market_pair": "PRES24-DJT",
+        "timestamp": "2025-01-15T10:30:00Z", 
+        "spread": 0.035,
+        "direction": "kalshi_to_polymarket",
+        "side": "yes",
+        "kalshi_price": 0.520,
+        "polymarket_price": 0.480,
+        "kalshi_market_id": 12345,
+        "polymarket_asset_id": "asset_abc123",
+        "confidence": 1.0,
+        "execution_size": 100.0,
+        "execution_info": {...}
     }
+    
+    Args:
+        alert_data (dict): Alert data from EventBus containing ArbitrageOpportunity
     """
     # Use global channel manager directly to ensure same instance
     from backend.global_manager import global_channel_manager

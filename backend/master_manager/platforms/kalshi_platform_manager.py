@@ -108,7 +108,7 @@ class KalshiPlatformManager:
             'timestamp': datetime.now().isoformat()
         })
     
-    async def _handle_kalshi_orderbook_update(self, sid: int, orderbook_state) -> None:
+    async def _handle_kalshi_orderbook_update(self, sid: str, orderbook_state) -> None:
         """Handle orderbook updates from Kalshi message processor."""
         logger.debug(f"Kalshi orderbook updated for sid={sid}, ticker={orderbook_state.market_ticker}")
         

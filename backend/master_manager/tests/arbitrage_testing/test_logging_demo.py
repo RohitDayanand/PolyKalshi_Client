@@ -106,7 +106,7 @@ async def run_logging_demo():
         # Add arbitrage pair
         coordinator.add_arbitrage_market_pair(
             market_pair="DEMO-LOGGING",
-            kalshi_sid=3,  # TEST-MARKET-Y
+            kalshi_ticker="TEST-MARKET-Y",  # Fixed parameter name
             polymarket_yes_asset_id="test_token_123",
             polymarket_no_asset_id="test_token_123_no"
         )

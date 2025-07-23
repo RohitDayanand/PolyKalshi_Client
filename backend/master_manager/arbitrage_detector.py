@@ -78,14 +78,14 @@ class ArbitrageDetector:
         }
         """
         try:
-            sid = event_data.get('sid')
+            ticker = event_data.get('market_ticker')
             
-            if not sid:
-                logger.warning("Invalid kalshi.orderbook_update event data - missing sid")
+            if not ticker:
+                logger.warning("Invalid kalshi.orderbook_update event data - missing market_ticker")
                 return
             
-            logger.debug(f"🔄 ARBITRAGE: Kalshi orderbook update for sid={sid}, triggering arbitrage check")
-            await self._notify_kalshi_update(sid)
+            logger.debug(f"🔄 ARBITRAGE: Kalshi orderbook update for ticker={ticker}, triggering arbitrage check")
+            await self._notify_kalshi_update(ticker)
             
         except Exception as e:
             logger.error(f"Error handling Kalshi orderbook update: {e}")
@@ -144,10 +144,10 @@ class ArbitrageDetector:
         except Exception as e:
             logger.error(f"Error handling Polymarket orderbook update: {e}")
     
-    async def _notify_kalshi_update(self, sid: int):
+    async def _notify_kalshi_update(self, ticker: str):
         """Notify that Kalshi has updated - ArbitrageManager will handle pair matching."""
         await self.event_bus.publish('arbitrage.kalshi_updated', {
-            'sid': sid,
+            'ticker': ticker,
             'timestamp': datetime.now().isoformat()
         })
     
@@ -196,11 +196,34 @@ class ArbitrageDetector:
     
     
     async def publish_arbitrage_alert(self, alert: ArbitrageAlert):
-        """Publish arbitrage alert via EventBus."""
+        """
+        Publish arbitrage alert via EventBus for distribution to frontend WebSocket clients.
+        
+        This method publishes an 'arbitrage.alert' event containing the ArbitrageOpportunity data.
+        The event flows through this path:
+        
+        1. ArbitrageDetector publishes 'arbitrage.alert' event
+        2. MarketsCoordinator subscribes to 'arbitrage.alert' and receives the event
+        3. MarketsCoordinator calls publish_arbitrage_alert() from websocket_server
+        4. WebSocket server broadcasts to all connected frontend clients via ChannelManager
+        5. Frontend receives arbitrage_alert message with 'type': 'arbitrage_alert'
+        
+        Event data structure:
+        {
+            'alert': ArbitrageOpportunity,  # Complete arbitrage opportunity object
+            'market_pair': str,             # Redundant for quick access
+            'spread': float,                # Redundant for quick access
+            'direction': str,               # Redundant for quick access
+            'timestamp': str                # Redundant for quick access
+        }
+        
+        Args:
+            alert (ArbitrageAlert): The arbitrage opportunity to broadcast
+        """
         try:
             # Publish to EventBus for other components to consume
             await self.event_bus.publish('arbitrage.alert', {
-                'alert': alert,
+                'alert': alert.to_dict(),
                 'market_pair': alert.market_pair,
                 'spread': alert.spread,
                 'direction': alert.direction,

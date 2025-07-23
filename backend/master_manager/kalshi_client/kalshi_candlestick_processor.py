@@ -136,8 +136,6 @@ def process_kalshi_candlesticks(raw_data: Dict, market_info: Dict[str, str]) -> 
                 "open_interest": candle.get("open_interest", 0)
             }
 
-            print((f"Candle {i} is complete"))
-            
             processed_data["candlesticks"].append(processed_candle)
             valid_candles += 1
         
