@@ -6,7 +6,8 @@ import json
 import logging
 import re
 import time
-from typing import Dict, Optional
+import uuid
+from typing import Dict, Optional, List, Any
 from datetime import datetime
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -61,6 +62,21 @@ class KalshiCandlestickResponse(BaseModel):
     data: Optional[Dict] = None
     error: Optional[str] = None
     market_info: Dict[str, str] = Field(default_factory=dict)
+
+class ArbitrageSettingsRequest(BaseModel):
+    """Request model for updating arbitrage settings."""
+    min_spread_threshold: Optional[float] = Field(None, ge=0.0, le=1.0, description="Minimum spread threshold (0.0-1.0)")
+    min_trade_size: Optional[float] = Field(None, ge=0.0, description="Minimum trade size threshold")
+    source: Optional[str] = Field("api", description="Source of the settings change")
+
+class ArbitrageSettingsResponse(BaseModel):
+    """Response model for arbitrage settings operations."""
+    success: bool
+    message: str
+    old_settings: Optional[Dict[str, Any]] = None
+    new_settings: Optional[Dict[str, Any]] = None
+    changed_fields: Optional[List[str]] = None
+    errors: Optional[List[str]] = None
 
 class ConnectionState:
     """
@@ -691,6 +707,151 @@ async def get_polymarket_timeseries( market_string_id: str = Query(..., descript
         raise HTTPException(status_code=500, detail="Internal server error while fetching candlestick data")
 
 # Function to be called by orderbook processors
+@app.post("/api/arbitrage/settings", response_model=ArbitrageSettingsResponse)
+async def update_arbitrage_settings(request: ArbitrageSettingsRequest):
+    """
+    Update arbitrage settings dynamically with proper async request-response pattern.
+    
+    This endpoint:
+    1. Validates request parameters using Pydantic
+    2. Generates correlation ID for request tracking
+    3. Publishes arbitrage.settings_changed event with correlation ID
+    4. Awaits response events (arbitrage.settings_updated or arbitrage.settings_error)
+    5. Returns success/error response based on ArbitrageManager's actual processing
+    
+    The ArbitrageManager subscribes to the event and handles:
+    - Settings validation and atomic updates
+    - Updating ArbitrageDetector thresholds
+    - Publishing correlation-matched response events
+    
+    Parameters (all optional - partial updates supported):
+    - min_spread_threshold: Float 0.0-1.0 (e.g., 0.03 = 3% minimum spread)
+    - min_trade_size: Float >= 0.0 (minimum trade size threshold)
+    - source: String identifying the update source
+    """
+    try:
+        # Import global event bus
+        from backend.master_manager.events.event_bus import global_event_bus
+        
+        # Extract only non-None fields for partial updates
+        settings_update = {}
+        if request.min_spread_threshold is not None:
+            settings_update['min_spread_threshold'] = request.min_spread_threshold
+        if request.min_trade_size is not None:
+            settings_update['min_trade_size'] = request.min_trade_size
+        
+        if not settings_update:
+            return ArbitrageSettingsResponse(
+                success=False,
+                message="No settings provided for update",
+                errors=["Request must include at least one setting to update"]
+            )
+        
+        # Generate unique correlation ID for this request
+        correlation_id = str(uuid.uuid4())
+        logger.info(f"🎯 Arbitrage settings update request {correlation_id} from {request.source}: {settings_update}")
+        
+        # Create future to await the response
+        response_future = asyncio.Future()
+        
+        # Response handler for success events
+        async def handle_success(event_data: Dict[str, Any]):
+            if event_data.get('correlation_id') == correlation_id:
+                logger.info(f"✅ Received success response for {correlation_id}")
+                response_future.set_result(('success', event_data))
+                
+        # Response handler for error events
+        async def handle_error(event_data: Dict[str, Any]):
+            if event_data.get('correlation_id') == correlation_id:
+                logger.info(f"❌ Received error response for {correlation_id}")
+                response_future.set_result(('error', event_data))
+        
+        # Subscribe to response events
+        global_event_bus.subscribe('arbitrage.settings_updated', handle_success)
+        global_event_bus.subscribe('arbitrage.settings_error', handle_error)
+        
+        try:
+            # Publish request with correlation ID
+            await global_event_bus.publish('arbitrage.settings_changed', {
+                'settings': settings_update,
+                'source': request.source or 'api',
+                'correlation_id': correlation_id,
+                'timestamp': datetime.now().isoformat()
+            })
+            
+            logger.info(f"📤 Published settings change event with correlation ID: {correlation_id}")
+            
+            # Wait for response with timeout
+            try:
+                result_type, result_data = await asyncio.wait_for(response_future, timeout=10.0)
+                
+                if result_type == 'success':
+                    logger.info(f"🎉 Settings update {correlation_id} successful")
+                    return ArbitrageSettingsResponse(
+                        success=True,
+                        message="Settings updated successfully by ArbitrageManager",
+                        old_settings=result_data.get('old_settings'),
+                        new_settings=result_data.get('new_settings'),
+                        changed_fields=result_data.get('changed_fields')
+                    )
+                else:
+                    # ArbitrageManager rejected the settings
+                    logger.warning(f"⚠️ Settings update {correlation_id} rejected: {result_data.get('errors')}")
+                    return ArbitrageSettingsResponse(
+                        success=False,
+                        message="Settings update rejected by ArbitrageManager",
+                        errors=result_data.get('errors', ['Unknown rejection reason'])
+                    )
+                    
+            except asyncio.TimeoutError:
+                logger.error(f"⏰ Settings update {correlation_id} timed out")
+                return ArbitrageSettingsResponse(
+                    success=False,
+                    message="Settings update request timed out",
+                    errors=["ArbitrageManager did not respond within 10 seconds - may be offline or busy"]
+                )
+                
+        finally:
+            # Always cleanup subscriptions to prevent memory leaks
+            try:
+                global_event_bus.unsubscribe('arbitrage.settings_updated', handle_success)
+                global_event_bus.unsubscribe('arbitrage.settings_error', handle_error)
+                logger.debug(f"🧹 Cleaned up event subscriptions for {correlation_id}")
+            except Exception as cleanup_error:
+                logger.warning(f"Warning: Failed to cleanup event subscriptions: {cleanup_error}")
+            
+    except Exception as e:
+        logger.error(f"❌ Unexpected error in settings update endpoint: {e}")
+        return ArbitrageSettingsResponse(
+            success=False,
+            message=f"Internal server error: {str(e)}",
+            errors=[f"Unexpected error: {str(e)}"]
+        )
+
+@app.get("/api/arbitrage/settings")
+async def get_arbitrage_settings():
+    """
+    Get current arbitrage settings.
+    
+    Note: This is a placeholder endpoint. In a full implementation,
+    you would access the ArbitrageManager instance to get current settings.
+    """
+    try:
+        logger.info("📖 Arbitrage settings requested")
+        
+        return {
+            "message": "Settings retrieval via direct ArbitrageManager access not yet implemented",
+            "suggestion": "Use POST /api/arbitrage/settings to update settings via EventBus",
+            "default_settings": {
+                "min_spread_threshold": 0.05,
+                "min_trade_size": 10.0
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Error retrieving arbitrage settings: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 async def publish_ticker_update(ticker_data: dict):
     """
     Publish ticker update to WebSocket clients

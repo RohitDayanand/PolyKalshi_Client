@@ -37,21 +37,22 @@ class ArbitrageDetector:
     - No state caching - uses fresh snapshots for atomic consistency
     """
     
-    def __init__(self, event_bus: EventBus, min_spread_threshold: float = 0.02):
+    def __init__(self, event_bus: EventBus, min_spread_threshold: float = 0.05, min_trade_size: float = 10.0):
         """
         Initialize the arbitrage detector.
         
         Args:
             event_bus: EventBus instance for communication and alert publishing
             min_spread_threshold: Minimum spread required to trigger arbitrage alert
+            min_trade_size: Minimum trade size threshold for execution
         """
         self.event_bus = event_bus
-        self.calculator = ArbitrageCalculator(min_spread_threshold)
+        self.calculator = ArbitrageCalculator(min_spread_threshold, min_trade_size)
         
         # Subscribe to price change events as triggers (no state caching)
         self._subscribe_to_events()
         
-        logger.info(f"ArbitrageDetector initialized with min_spread_threshold={min_spread_threshold}")
+        logger.info(f"ArbitrageDetector initialized with min_spread_threshold={min_spread_threshold}, min_trade_size={min_trade_size}")
         logger.info("Using event-triggered, snapshot-based arbitrage detection with separated calculation logic")
     
     def _subscribe_to_events(self):

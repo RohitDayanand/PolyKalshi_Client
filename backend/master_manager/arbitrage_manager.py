@@ -9,12 +9,14 @@ Key Features:
 - Market pair lifecycle management (add/remove pairs)
 - Coordination between ArbitrageDetector and market pairs
 - Statistics and monitoring
-- EventBus integration for notifications
+- EventBus integration for notification
 """
 
 import logging
 import asyncio
 from typing import Dict, Any, Optional, List, Callable
+from dataclasses import dataclass, asdict
+from datetime import datetime
 
 from .events.event_bus import EventBus, global_event_bus
 from .arbitrage_detector import ArbitrageDetector, ArbitrageAlert
@@ -22,6 +24,63 @@ from .arbitrage_detector import ArbitrageDetector, ArbitrageAlert
 logger = logging.getLogger(__name__)
 
 DEDUPLICATION_THRESHOLD = 0.1  # Only alert again if spread changes by more than 10%
+
+@dataclass
+class ArbitrageSettings:
+    """
+    Modular arbitrage settings that can be updated dynamically via EventBus.
+    
+    This dataclass contains all configurable parameters for arbitrage detection.
+    New settings can be easily added without breaking existing functionality.
+    
+    Current settings:
+        min_spread_threshold (float): Minimum spread required to trigger arbitrage alert
+        min_trade_size (float): Minimum trade size threshold for execution
+        
+    Future extensible settings examples:
+        max_trade_size (float): Maximum trade size limit
+        max_alerts_per_minute (int): Rate limiting for alerts
+        enabled_platforms (List[str]): Which platforms to monitor
+        confidence_threshold (float): Minimum confidence level required
+        max_spread_age_seconds (int): How long spreads are valid
+        enable_notifications (bool): Whether to send notifications
+        blacklisted_markets (List[str]): Markets to exclude from monitoring
+    """
+    min_spread_threshold: float = 0.05
+    min_trade_size: float = 10.0
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert settings to dictionary for serialization."""
+        return asdict(self)
+    
+    @classmethod 
+    def from_dict(cls, data: Dict[str, Any]) -> 'ArbitrageSettings':
+        """Create ArbitrageSettings from dictionary."""
+        # Filter only valid fields to handle partial updates
+        valid_fields = {k: v for k, v in data.items() if hasattr(cls, k)}
+        return cls(**valid_fields)
+    
+    def update_from_dict(self, data: Dict[str, Any]) -> 'ArbitrageSettings':
+        """Update current settings with new values, returning new instance."""
+        current_dict = self.to_dict()
+        # Only update fields that exist in the dataclass
+        valid_updates = {k: v for k, v in data.items() if hasattr(self, k)}
+        current_dict.update(valid_updates)
+        return ArbitrageSettings.from_dict(current_dict)
+    
+    def validate(self) -> List[str]:
+        """Validate settings and return list of error messages."""
+        errors = []
+        
+        if self.min_spread_threshold < 0:
+            errors.append("min_spread_threshold must be non-negative")
+        if self.min_spread_threshold > 1:
+            errors.append("min_spread_threshold must be <= 1.0 (100%)")
+            
+        if self.min_trade_size < 0:
+            errors.append("min_trade_size must be non-negative")
+            
+        return errors
 
 class ArbitrageManager:
     """
@@ -32,32 +91,45 @@ class ArbitrageManager:
     arbitrage detection across multiple market pairs.
     """
     
-    def __init__(self, min_spread_threshold: float = 0.05, event_bus: Optional[EventBus] = None, 
-                 kalshi_processor=None, polymarket_processor=None):
+    def __init__(self, min_spread_threshold: float = 0.05, min_trade_size: float = 10.0, 
+                 event_bus: Optional[EventBus] = None, kalshi_processor=None, polymarket_processor=None):
         """
-        Initialize ArbitrageManager.
+        Initialize ArbitrageManager with modular settings system.
         
         Args:
-            min_spread_threshold: Minimum spread required to trigger arbitrage alert (default: 2%)
+            min_spread_threshold: Minimum spread required to trigger arbitrage alert (default: 5%)
+            min_trade_size: Minimum trade size threshold for execution (default: 10.0)
             event_bus: EventBus instance (uses global_event_bus if None)
             kalshi_processor: Kalshi processor with get_orderbook() method (optional)
             polymarket_processor: Polymarket processor with get_orderbook() method (optional)
         """
         self.event_bus = event_bus or global_event_bus
+        
+        # Initialize arbitrage settings with validation
+        self.settings = ArbitrageSettings(
+            min_spread_threshold=min_spread_threshold,
+            min_trade_size=min_trade_size
+        )
+        
+        # Validate initial settings
+        validation_errors = self.settings.validate()
+        if validation_errors:
+            logger.error(f"Invalid initial arbitrage settings: {validation_errors}")
+            raise ValueError(f"Invalid arbitrage settings: {', '.join(validation_errors)}")
+        
         self.market_pairs: Dict[str, Dict[str, Any]] = {}  # market_pair -> {kalshi_ticker, polymarket_yes_asset_id, polymarket_no_asset_id}
-        # No deduplication state; stateless except for market_pairs
         
         # Processor references for accessing OrderbookState objects
         self.kalshi_processor = kalshi_processor
         self.polymarket_processor = polymarket_processor
         
         # Initialize the core arbitrage detector
-        self.detector = ArbitrageDetector(self.event_bus, min_spread_threshold)
+        self.detector = ArbitrageDetector(self.event_bus, self.settings.min_spread_threshold, self.settings.min_trade_size)
         
         # Subscribe to detector notifications about price updates
         self._subscribe_to_detector_events()
         
-        logger.info(f"ArbitrageManager initialized with min_spread_threshold={min_spread_threshold}")
+        logger.info(f"ArbitrageManager initialized with settings: {self.settings.to_dict()}")
         if kalshi_processor and polymarket_processor:
             logger.info("ArbitrageManager has processor references for direct orderbook access")
     
@@ -78,12 +150,15 @@ class ArbitrageManager:
             logger.warning("⚠️ ArbitrageManager processors partially set - some may be None")
     
     def _subscribe_to_detector_events(self):
-        """Subscribe to ArbitrageDetector update notifications."""
+        """Subscribe to ArbitrageDetector update notifications and settings changes."""
         # Subscribe to notifications from detector about platform updates
         self.event_bus.subscribe('arbitrage.kalshi_updated', self._handle_kalshi_updated)
         self.event_bus.subscribe('arbitrage.polymarket_updated', self._handle_polymarket_updated)
         
-        logger.info("ArbitrageManager subscribed to detector update events")
+        # Subscribe to arbitrage settings changes from frontend
+        self.event_bus.subscribe('arbitrage.settings_changed', self._handle_settings_changed)
+        
+        logger.info("ArbitrageManager subscribed to detector update events and settings changes")
     
     async def _handle_kalshi_updated(self, event_data: Dict[str, Any]):
         """
@@ -133,6 +208,96 @@ class ArbitrageManager:
             
         except Exception as e:
             logger.error(f"Error handling Polymarket update notification: {e}")
+    
+    async def _handle_settings_changed(self, event_data: Dict[str, Any]):
+        """
+        Handle arbitrage settings changes from frontend via EventBus.
+        
+        Event data format:
+        {
+            'settings': {
+                'min_spread_threshold': 0.03,
+                'min_trade_size': 25.0,
+                # ... future settings
+            },
+            'source': 'frontend_user' | 'admin' | 'api',
+            'timestamp': '2025-01-15T10:30:00Z',
+            'user_id': 'optional_user_id'
+        }
+        
+        Args:
+            event_data: Event data containing new settings and metadata
+        """
+        try:
+            new_settings_data = event_data.get('settings', {})
+            source = event_data.get('source', 'unknown')
+            correlation_id = event_data.get('correlation_id')  # Extract correlation ID for response tracking
+            
+            if not new_settings_data:
+                logger.warning("Invalid arbitrage.settings_changed event data - missing 'settings'")
+                return
+            
+            # Create new settings instance from current settings + updates
+            updated_settings = self.settings.update_from_dict(new_settings_data)
+            
+            # Validate new settings
+            validation_errors = updated_settings.validate()
+            if validation_errors:
+                logger.error(f"Invalid arbitrage settings update from {source}: {validation_errors}")
+                # Publish validation error event for frontend notification
+                await self.event_bus.publish('arbitrage.settings_error', {
+                    'errors': validation_errors,
+                    'rejected_settings': new_settings_data,
+                    'current_settings': self.settings.to_dict(),
+                    'correlation_id': correlation_id,  # Pass through correlation ID
+                    'source': source,
+                    'timestamp': event_data.get('timestamp')
+                })
+                return
+            
+            # Store old settings for logging
+            old_settings = self.settings.to_dict()
+            
+            # Atomic settings update: Update detector first, then swap settings reference
+            # This ensures detector and settings are always consistent
+            if old_settings['min_spread_threshold'] != updated_settings.min_spread_threshold:
+                # Update detector before settings swap to maintain consistency
+                self.detector.calculator.min_spread_threshold = updated_settings.min_spread_threshold
+                logger.info(f"🎯 Updated ArbitrageDetector min_spread_threshold: {old_settings['min_spread_threshold']:.3f} → {updated_settings.min_spread_threshold:.3f}")
+            
+            if old_settings['min_trade_size'] != updated_settings.min_trade_size:
+                # Update detector min_trade_size for filtering
+                self.detector.calculator.min_trade_size = updated_settings.min_trade_size
+                logger.info(f"💰 Updated ArbitrageDetector min_trade_size: {old_settings['min_trade_size']:.1f} → {updated_settings.min_trade_size:.1f}")
+            
+            # Atomic settings swap (single reference assignment is atomic in Python)
+            self.settings = updated_settings
+            
+            logger.info(f"✅ Arbitrage settings updated from {source}")
+            logger.info(f"   Old: {old_settings}")
+            logger.info(f"   New: {self.settings.to_dict()}")
+            
+            # Publish success confirmation for frontend
+            await self.event_bus.publish('arbitrage.settings_updated', {
+                'old_settings': old_settings,
+                'new_settings': self.settings.to_dict(),
+                'changed_fields': [k for k in new_settings_data.keys() if k in self.settings.to_dict()],
+                'correlation_id': correlation_id,  # Pass through correlation ID
+                'source': source,
+                'timestamp': event_data.get('timestamp')
+            })
+            
+        except Exception as e:
+            logger.error(f"Error handling arbitrage settings change: {e}")
+            # Publish error event for frontend notification
+            await self.event_bus.publish('arbitrage.settings_error', {
+                'errors': [f"Internal error: {str(e)}"],
+                'rejected_settings': event_data.get('settings', {}),
+                'current_settings': self.settings.to_dict(),
+                'correlation_id': correlation_id,  # Pass through correlation ID
+                'source': event_data.get('source', 'unknown'),
+                'timestamp': event_data.get('timestamp')
+            })
     
     async def _check_arbitrage_for_pair(self, pair_name: str):
         """
@@ -270,13 +435,39 @@ class ArbitrageManager:
         
         return all_alerts
     
+    def get_settings(self) -> Dict[str, Any]:
+        """Get current arbitrage settings."""
+        return self.settings.to_dict()
+    
+    async def update_settings(self, new_settings: Dict[str, Any], source: str = 'api') -> bool:
+        """
+        Public method to update arbitrage settings programmatically.
+        
+        Args:
+            new_settings: Dictionary with setting updates
+            source: Source of the update (for logging)
+            
+        Returns:
+            bool: True if settings were updated successfully, False otherwise
+        """
+        try:
+            # Trigger settings change event (will be handled by our event handler)
+            await self.event_bus.publish('arbitrage.settings_changed', {
+                'settings': new_settings,
+                'source': source,
+                'timestamp': datetime.now().isoformat()
+            })
+            return True
+        except Exception as e:
+            logger.error(f"Error updating settings programmatically: {e}")
+            return False
     
     def get_stats(self) -> Dict[str, Any]:
-        """Get arbitrage manager statistics."""
+        """Get arbitrage manager statistics including current settings."""
         return {
             'monitored_pairs': len(self.market_pairs),
             'market_pairs': list(self.market_pairs.keys()),
-            'min_spread_threshold': 0, #not available - post refactor arb detector deals with economic logic for arb calculation
+            'settings': self.settings.to_dict(),
             'detector_stats': self.detector.get_stats(),
             'status': 'active'
         }
