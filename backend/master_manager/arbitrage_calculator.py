@@ -10,8 +10,16 @@ from typing import Dict, Any, Optional, List
 from datetime import datetime
 from dataclasses import dataclass, asdict
 
-from .kalshi_client.models.orderbook_state import OrderbookSnapshot as KalshiOrderbookSnapshot
-from .polymarket_client.models.orderbook_state import PolymarketOrderbookSnapshot
+try:
+    # Try relative imports first (when used as a module)
+    from .kalshi_client.models.orderbook_state import OrderbookSnapshot as KalshiOrderbookSnapshot
+    from .polymarket_client.models.orderbook_state import PolymarketOrderbookSnapshot
+    from .kalshi_fee_calculator import kalshi_effective_bid, kalshi_effective_ask
+except ImportError:
+    # Fall back to absolute imports (when run directly)
+    from kalshi_client.models.orderbook_state import OrderbookSnapshot as KalshiOrderbookSnapshot
+    from polymarket_client.models.orderbook_state import PolymarketOrderbookSnapshot
+    from kalshi_fee_calculator import kalshi_effective_bid, kalshi_effective_ask
 
 logger = logging.getLogger()
 
@@ -91,15 +99,19 @@ class ArbitrageCalculator:
     - Threading or async coordination
     """
     
-    def __init__(self, min_spread_threshold):
+    def __init__(self, min_spread_threshold, min_trade_size: float = 10.0, ticker_lookup: Optional[Dict[str, str]] = None):
         """
         Initialize the arbitrage calculator.
         
         Args:
             min_spread_threshold: Minimum spread required to consider arbitrage viable
+            min_trade_size: Minimum trade size threshold for execution
+            ticker_lookup: Optional dictionary mapping market_id to ticker symbols for fee calculation
         """
         self.min_spread_threshold = min_spread_threshold
-        logger.info(f"ArbitrageCalculator initialized with min_spread_threshold={min_spread_threshold}")
+        self.min_trade_size = min_trade_size
+        self.ticker_lookup = ticker_lookup or {}
+        logger.info(f"ArbitrageCalculator initialized with min_spread_threshold={min_spread_threshold}, min_trade_size={min_trade_size}")
     
     def calculate_arbitrage_opportunities(self, pair_name: str, 
                                        kalshi_snapshot: KalshiOrderbookSnapshot,
@@ -124,7 +136,7 @@ class ArbitrageCalculator:
         
         arbitrage_calculation_log(f"🔍 CALCULATING | pair={pair_name} | kalshi_sid={kalshi_snapshot.sid} | poly_yes={poly_yes_snapshot.asset_id} | poly_no={poly_no_snapshot.asset_id}")
         
-        # Extract and normalize prices
+        # Extract and normalize prices (with fee adjustments)
         prices = self._extract_prices(kalshi_snapshot, poly_yes_snapshot, poly_no_snapshot)
         if not prices:
             arbitrage_calculation_log(f"❌ INVALID PRICES | pair={pair_name}")
@@ -163,53 +175,101 @@ class ArbitrageCalculator:
                        poly_yes_snapshot: PolymarketOrderbookSnapshot, 
                        poly_no_snapshot: PolymarketOrderbookSnapshot) -> Optional[Dict[str, float]]:
         """
-        Extract and normalize prices from all snapshots.
+        Extract and normalize prices from all snapshots, including fee adjustments for Kalshi.
         
         Returns:
-            Dict with normalized prices (0.0-1.0) or None if invalid prices
+            Dict with normalized prices (0.0-1.0) including fee-adjusted Kalshi prices, or None if invalid prices
         """
-        # Extract Kalshi prices (in cents, 1-99)
-        kalshi_yes_bid = kalshi_snapshot.best_yes_bid
-        kalshi_no_bid = kalshi_snapshot.best_no_bid
-        
-        # Use prediction market relationship: YES ask = 100 - NO bid for Kalshi
-        kalshi_yes_ask = 100 - kalshi_no_bid if kalshi_no_bid is not None else None
-        kalshi_no_ask = 100 - kalshi_yes_bid if kalshi_yes_bid is not None else None
-        
-        # Extract Polymarket prices (convert strings to float decimals 0.0-1.0)
-        poly_yes_bid = float(poly_yes_snapshot.best_bid_price) if poly_yes_snapshot.best_bid_price else None
-        poly_yes_ask = float(poly_yes_snapshot.best_ask_price) if poly_yes_snapshot.best_ask_price else None
-        poly_no_bid = float(poly_no_snapshot.best_bid_price) if poly_no_snapshot.best_bid_price else None
-        poly_no_ask = float(poly_no_snapshot.best_ask_price) if poly_no_snapshot.best_ask_price else None
-        
-        # Convert Kalshi cents to decimal format (0.0-1.0)
-        k_yes_bid = kalshi_yes_bid / 100.0 if kalshi_yes_bid is not None else None
-        k_yes_ask = kalshi_yes_ask / 100.0 if kalshi_yes_ask is not None else None
-        k_no_bid = kalshi_no_bid / 100.0 if kalshi_no_bid is not None else None
-        k_no_ask = kalshi_no_ask / 100.0 if kalshi_no_ask is not None else None
-        
-        # Validate we have all required prices
-        if None in [k_yes_bid, k_yes_ask, poly_yes_bid, poly_yes_ask, k_no_bid, k_no_ask, poly_no_bid, poly_no_ask]:
+        try:
+            # Extract Kalshi prices (in cents, 1-99)
+            kalshi_yes_bid = kalshi_snapshot.best_yes_bid
+            kalshi_no_bid = kalshi_snapshot.best_no_bid
+            
+            # Use prediction market relationship: YES ask = 100 - NO bid for Kalshi
+            kalshi_yes_ask = 100 - kalshi_no_bid if kalshi_no_bid is not None else None
+            kalshi_no_ask = 100 - kalshi_yes_bid if kalshi_yes_bid is not None else None
+            
+            # Extract Polymarket prices (convert strings to float decimals 0.0-1.0)
+            poly_yes_bid = float(poly_yes_snapshot.best_bid_price) if poly_yes_snapshot.best_bid_price else None
+            poly_yes_ask = float(poly_yes_snapshot.best_ask_price) if poly_yes_snapshot.best_ask_price else None
+            poly_no_bid = float(poly_no_snapshot.best_bid_price) if poly_no_snapshot.best_bid_price else None
+            poly_no_ask = float(poly_no_snapshot.best_ask_price) if poly_no_snapshot.best_ask_price else None
+            
+            # Validate we have all required raw prices
+            if None in [kalshi_yes_bid, kalshi_yes_ask, poly_yes_bid, poly_yes_ask, kalshi_no_bid, kalshi_no_ask, poly_no_bid, poly_no_ask]:
+                logger.debug("Missing required price data in orderbooks")
+                return None
+            
+            # Calculate fee-adjusted Kalshi prices
+            # Use a standard contract size of 100 for fee calculations
+            standard_contracts = 100
+            market_id = str(kalshi_snapshot.sid) if kalshi_snapshot.sid else None
+            
+            # Fee-adjusted Kalshi prices (effective prices after fees)
+            try:
+                k_yes_bid_effective = kalshi_effective_bid(kalshi_yes_bid, standard_contracts, self.ticker_lookup, market_id)
+                k_yes_ask_effective = kalshi_effective_ask(kalshi_yes_ask, standard_contracts, self.ticker_lookup, market_id)
+                k_no_bid_effective = kalshi_effective_bid(kalshi_no_bid, standard_contracts, self.ticker_lookup, market_id)
+                k_no_ask_effective = kalshi_effective_ask(kalshi_no_ask, standard_contracts, self.ticker_lookup, market_id)
+            except Exception as e:
+                logger.warning(f"Error calculating Kalshi fees, using raw prices: {e}")
+                # Fallback to raw prices if fee calculation fails
+                k_yes_bid_effective = kalshi_yes_bid / 100.0
+                k_yes_ask_effective = kalshi_yes_ask / 100.0
+                k_no_bid_effective = kalshi_no_bid / 100.0
+                k_no_ask_effective = kalshi_no_ask / 100.0
+            
+            # Validate effective prices are reasonable (0-1 range)
+            for price, name in [(k_yes_bid_effective, 'k_yes_bid'), (k_yes_ask_effective, 'k_yes_ask'),
+                              (k_no_bid_effective, 'k_no_bid'), (k_no_ask_effective, 'k_no_ask')]:
+                if price < 0 or price > 1:
+                    logger.warning(f"Invalid effective price for {name}: {price}, using raw price")
+                    # Fall back to raw price if effective price is out of bounds
+                    if name == 'k_yes_bid':
+                        k_yes_bid_effective = kalshi_yes_bid / 100.0
+                    elif name == 'k_yes_ask':
+                        k_yes_ask_effective = kalshi_yes_ask / 100.0
+                    elif name == 'k_no_bid':
+                        k_no_bid_effective = kalshi_no_bid / 100.0
+                    elif name == 'k_no_ask':
+                        k_no_ask_effective = kalshi_no_ask / 100.0
+            
+            return {
+                'k_yes_bid': k_yes_bid_effective,
+                'k_yes_ask': k_yes_ask_effective,
+                'k_no_bid': k_no_bid_effective,
+                'k_no_ask': k_no_ask_effective,
+                'poly_yes_bid': poly_yes_bid,
+                'poly_yes_ask': poly_yes_ask,
+                'poly_no_bid': poly_no_bid,
+                'poly_no_ask': poly_no_ask,
+                # Also include raw Kalshi prices for logging/debugging
+                'k_yes_bid_raw': kalshi_yes_bid / 100.0,
+                'k_yes_ask_raw': kalshi_yes_ask / 100.0,
+                'k_no_bid_raw': kalshi_no_bid / 100.0,
+                'k_no_ask_raw': kalshi_no_ask / 100.0
+            }
+            
+        except Exception as e:
+            logger.error(f"Error extracting prices from orderbook snapshots: {e}")
             return None
-        
-        return {
-            'k_yes_bid': k_yes_bid,
-            'k_yes_ask': k_yes_ask,
-            'k_no_bid': k_no_bid,
-            'k_no_ask': k_no_ask,
-            'poly_yes_bid': poly_yes_bid,
-            'poly_yes_ask': poly_yes_ask,
-            'poly_no_bid': poly_no_bid,
-            'poly_no_ask': poly_no_ask
-        }
     
     def _log_price_analysis(self, pair_name: str, prices: Dict[str, float]) -> None:
-        """Log detailed price information for analysis."""
+        """Log detailed price information for analysis, including fee adjustments."""
         arbitrage_calculation_log(f"📊 PRICE ANALYSIS | pair={pair_name}")
-        arbitrage_calculation_log(f"   🏦 Kalshi YES: bid={prices['k_yes_bid']:.3f}, ask={prices['k_yes_ask']:.3f}")
-        arbitrage_calculation_log(f"   🏦 Kalshi NO:  bid={prices['k_no_bid']:.3f}, ask={prices['k_no_ask']:.3f}")
-        arbitrage_calculation_log(f"   🎯 Poly YES:   bid={prices['poly_yes_bid']:.3f}, ask={prices['poly_yes_ask']:.3f}")
-        arbitrage_calculation_log(f"   🎯 Poly NO:    bid={prices['poly_no_bid']:.3f}, ask={prices['poly_no_ask']:.3f}")
+        
+        # Show effective (fee-adjusted) prices
+        arbitrage_calculation_log(f"   🏦 Kalshi YES (effective): bid={prices['k_yes_bid']:.3f}, ask={prices['k_yes_ask']:.3f}")
+        arbitrage_calculation_log(f"   🏦 Kalshi NO  (effective): bid={prices['k_no_bid']:.3f}, ask={prices['k_no_ask']:.3f}")
+        
+        # Show raw Kalshi prices for comparison if available
+        if 'k_yes_bid_raw' in prices:
+            arbitrage_calculation_log(f"   📊 Kalshi YES (raw):      bid={prices['k_yes_bid_raw']:.3f}, ask={prices['k_yes_ask_raw']:.3f}")
+            arbitrage_calculation_log(f"   📊 Kalshi NO  (raw):      bid={prices['k_no_bid_raw']:.3f}, ask={prices['k_no_ask_raw']:.3f}")
+        
+        # Polymarket prices (no fees applied)
+        arbitrage_calculation_log(f"   🎯 Poly YES:              bid={prices['poly_yes_bid']:.3f}, ask={prices['poly_yes_ask']:.3f}")
+        arbitrage_calculation_log(f"   🎯 Poly NO:               bid={prices['poly_no_bid']:.3f}, ask={prices['poly_no_ask']:.3f}")
     
     def _calculate_all_strategies(self, pair_name: str, prices: Dict[str, float],
                                 kalshi_snapshot: KalshiOrderbookSnapshot,
@@ -230,21 +290,25 @@ class ArbitrageCalculator:
                 poly_no_snapshot, "ask", prices['poly_no_ask']
             )
             
-            opportunity = ArbitrageOpportunity(
-                market_pair=pair_name,
-                timestamp=timestamp,
-                spread=spreads['strategy_1'],
-                direction="kalshi_to_polymarket",
-                side="yes",
-                kalshi_price=prices['k_yes_bid'],
-                polymarket_price=prices['poly_no_ask'],
-                kalshi_market_id=kalshi_snapshot.sid,
-                polymarket_asset_id=poly_no_snapshot.asset_id,
-                execution_size=execution_info.get('min_execution_size', 0.0),
-                execution_info=execution_info
-            )
-            opportunities.append(opportunity)
-            arbitrage_calculation_log(f"🚨 OPPORTUNITY FOUND | pair={pair_name} | strategy=1 | spread={spreads['strategy_1']:.3f}")
+            # Only create opportunity if execution size meets minimum threshold
+            if execution_info.get('min_execution_size', 0.0) >= self.min_trade_size:
+                opportunity = ArbitrageOpportunity(
+                    market_pair=pair_name,
+                    timestamp=timestamp,
+                    spread=spreads['strategy_1'],
+                    direction="kalshi_to_polymarket",
+                    side="yes",
+                    kalshi_price=prices['k_yes_bid'],
+                    polymarket_price=prices['poly_no_ask'],
+                    kalshi_market_id=kalshi_snapshot.sid,
+                    polymarket_asset_id=poly_no_snapshot.asset_id,
+                    execution_size=execution_info.get('min_execution_size', 0.0),
+                    execution_info=execution_info
+                )
+                opportunities.append(opportunity)
+                arbitrage_calculation_log(f"🚨 OPPORTUNITY FOUND | pair={pair_name} | strategy=1 | spread={spreads['strategy_1']:.3f} | size={execution_info.get('min_execution_size', 0.0):.1f}")
+            else:
+                arbitrage_calculation_log(f"❌ OPPORTUNITY FILTERED | pair={pair_name} | strategy=1 | spread={spreads['strategy_1']:.3f} | size={execution_info.get('min_execution_size', 0.0):.1f} < min_trade_size={self.min_trade_size}")
         
         # Strategy 2: Sell Kalshi NO + Buy Polymarket YES
         if spreads['strategy_2'] >= self.min_spread_threshold:
@@ -253,21 +317,25 @@ class ArbitrageCalculator:
                 poly_yes_snapshot, "ask", prices['poly_yes_ask']
             )
             
-            opportunity = ArbitrageOpportunity(
-                market_pair=pair_name,
-                timestamp=timestamp,
-                spread=spreads['strategy_2'],
-                direction="kalshi_to_polymarket",
-                side="no",
-                kalshi_price=prices['k_no_bid'],
-                polymarket_price=prices['poly_yes_ask'],
-                kalshi_market_id=kalshi_snapshot.sid,
-                polymarket_asset_id=poly_yes_snapshot.asset_id,
-                execution_size=execution_info.get('min_execution_size', 0.0),
-                execution_info=execution_info
-            )
-            opportunities.append(opportunity)
-            arbitrage_calculation_log(f"🚨 OPPORTUNITY FOUND | pair={pair_name} | strategy=2 | spread={spreads['strategy_2']:.3f}")
+            # Only create opportunity if execution size meets minimum threshold
+            if execution_info.get('min_execution_size', 0.0) >= self.min_trade_size:
+                opportunity = ArbitrageOpportunity(
+                    market_pair=pair_name,
+                    timestamp=timestamp,
+                    spread=spreads['strategy_2'],
+                    direction="kalshi_to_polymarket",
+                    side="no",
+                    kalshi_price=prices['k_no_bid'],
+                    polymarket_price=prices['poly_yes_ask'],
+                    kalshi_market_id=kalshi_snapshot.sid,
+                    polymarket_asset_id=poly_yes_snapshot.asset_id,
+                    execution_size=execution_info.get('min_execution_size', 0.0),
+                    execution_info=execution_info
+                )
+                opportunities.append(opportunity)
+                arbitrage_calculation_log(f"🚨 OPPORTUNITY FOUND | pair={pair_name} | strategy=2 | spread={spreads['strategy_2']:.3f} | size={execution_info.get('min_execution_size', 0.0):.1f}")
+            else:
+                arbitrage_calculation_log(f"❌ OPPORTUNITY FILTERED | pair={pair_name} | strategy=2 | spread={spreads['strategy_2']:.3f} | size={execution_info.get('min_execution_size', 0.0):.1f} < min_trade_size={self.min_trade_size}")
         
         # Strategy 3: Sell Polymarket YES + Buy Kalshi NO
         if spreads['strategy_3'] >= self.min_spread_threshold:
@@ -276,21 +344,25 @@ class ArbitrageCalculator:
                 poly_yes_snapshot, "bid", prices['poly_yes_bid']
             )
             
-            opportunity = ArbitrageOpportunity(
-                market_pair=pair_name,
-                timestamp=timestamp,
-                spread=spreads['strategy_3'],
-                direction="polymarket_to_kalshi",
-                side="yes",
-                kalshi_price=prices['k_no_ask'],
-                polymarket_price=prices['poly_yes_bid'],
-                kalshi_market_id=kalshi_snapshot.sid,
-                polymarket_asset_id=poly_yes_snapshot.asset_id,
-                execution_size=execution_info.get('min_execution_size', 0.0),
-                execution_info=execution_info
-            )
-            opportunities.append(opportunity)
-            arbitrage_calculation_log(f"🚨 OPPORTUNITY FOUND | pair={pair_name} | strategy=3 | spread={spreads['strategy_3']:.3f}")
+            # Only create opportunity if execution size meets minimum threshold
+            if execution_info.get('min_execution_size', 0.0) >= self.min_trade_size:
+                opportunity = ArbitrageOpportunity(
+                    market_pair=pair_name,
+                    timestamp=timestamp,
+                    spread=spreads['strategy_3'],
+                    direction="polymarket_to_kalshi",
+                    side="yes",
+                    kalshi_price=prices['k_no_ask'],
+                    polymarket_price=prices['poly_yes_bid'],
+                    kalshi_market_id=kalshi_snapshot.sid,
+                    polymarket_asset_id=poly_yes_snapshot.asset_id,
+                    execution_size=execution_info.get('min_execution_size', 0.0),
+                    execution_info=execution_info
+                )
+                opportunities.append(opportunity)
+                arbitrage_calculation_log(f"🚨 OPPORTUNITY FOUND | pair={pair_name} | strategy=3 | spread={spreads['strategy_3']:.3f} | size={execution_info.get('min_execution_size', 0.0):.1f}")
+            else:
+                arbitrage_calculation_log(f"❌ OPPORTUNITY FILTERED | pair={pair_name} | strategy=3 | spread={spreads['strategy_3']:.3f} | size={execution_info.get('min_execution_size', 0.0):.1f} < min_trade_size={self.min_trade_size}")
         
         # Strategy 4: Sell Polymarket NO + Buy Kalshi YES
         if spreads['strategy_4'] >= self.min_spread_threshold:
@@ -299,21 +371,25 @@ class ArbitrageCalculator:
                 poly_no_snapshot, "bid", prices['poly_no_bid']
             )
             
-            opportunity = ArbitrageOpportunity(
-                market_pair=pair_name,
-                timestamp=timestamp,
-                spread=spreads['strategy_4'],
-                direction="polymarket_to_kalshi",
-                side="no",
-                kalshi_price=prices['k_yes_ask'],
-                polymarket_price=prices['poly_no_bid'],
-                kalshi_market_id=kalshi_snapshot.sid,
-                polymarket_asset_id=poly_no_snapshot.asset_id,
-                execution_size=execution_info.get('min_execution_size', 0.0),
-                execution_info=execution_info
-            )
-            opportunities.append(opportunity)
-            arbitrage_calculation_log(f"🚨 OPPORTUNITY FOUND | pair={pair_name} | strategy=4 | spread={spreads['strategy_4']:.3f}")
+            # Only create opportunity if execution size meets minimum threshold
+            if execution_info.get('min_execution_size', 0.0) >= self.min_trade_size:
+                opportunity = ArbitrageOpportunity(
+                    market_pair=pair_name,
+                    timestamp=timestamp,
+                    spread=spreads['strategy_4'],
+                    direction="polymarket_to_kalshi",
+                    side="no",
+                    kalshi_price=prices['k_yes_ask'],
+                    polymarket_price=prices['poly_no_bid'],
+                    kalshi_market_id=kalshi_snapshot.sid,
+                    polymarket_asset_id=poly_no_snapshot.asset_id,
+                    execution_size=execution_info.get('min_execution_size', 0.0),
+                    execution_info=execution_info
+                )
+                opportunities.append(opportunity)
+                arbitrage_calculation_log(f"🚨 OPPORTUNITY FOUND | pair={pair_name} | strategy=4 | spread={spreads['strategy_4']:.3f} | size={execution_info.get('min_execution_size', 0.0):.1f}")
+            else:
+                arbitrage_calculation_log(f"❌ OPPORTUNITY FILTERED | pair={pair_name} | strategy=4 | spread={spreads['strategy_4']:.3f} | size={execution_info.get('min_execution_size', 0.0):.1f} < min_trade_size={self.min_trade_size}")
         
         return opportunities
     

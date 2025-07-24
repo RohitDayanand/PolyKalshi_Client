@@ -14,6 +14,7 @@ import { useToast } from "@/hooks/use-toast"
 
 interface ArbitrageParameters {
   min_spread_threshold: number
+  min_trade_size: number
   alert_deduplication_threshold: number
   max_alerts_per_minute: number
   enable_notifications: boolean
@@ -28,6 +29,7 @@ interface ArbitrageParametersProps {
 
 const DEFAULT_PARAMETERS: ArbitrageParameters = {
   min_spread_threshold: 0.02, // 2%
+  min_trade_size: 10.0, // $10
   alert_deduplication_threshold: 0.10, // 10%
   max_alerts_per_minute: 10,
   enable_notifications: true,
@@ -38,6 +40,7 @@ const DEFAULT_PARAMETERS: ArbitrageParameters = {
 export function ArbitrageParameters({ className, onParametersChange }: ArbitrageParametersProps) {
   const [parameters, setParameters] = useState<ArbitrageParameters>(DEFAULT_PARAMETERS)
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
   const { toast } = useToast()
 
   const updateParameter = <K extends keyof ArbitrageParameters>(
@@ -67,28 +70,89 @@ export function ArbitrageParameters({ className, onParametersChange }: Arbitrage
     }
   }
 
+  const handleTradeSizeChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const value = parseFloat(event.target.value)
+    if (!isNaN(value) && value >= 1 && value <= 10000) {
+      updateParameter('min_trade_size', value)
+    }
+  }
+
+  const validateParameters = () => {
+    const errors: string[] = [];
+    
+    if (parameters.min_spread_threshold < 0 || parameters.min_spread_threshold > 1) {
+      errors.push("Spread threshold must be between 0% and 100%");
+    }
+    
+    if (parameters.min_trade_size < 1 || parameters.min_trade_size > 10000) {
+      errors.push("Trade size must be between $1 and $10,000");
+    }
+    
+    return errors;
+  };
+
   const saveParameters = async () => {
-    try {
-      // TODO: Implement API call to backend
-      // await fetch('/api/arbitrage/parameters', {
-      //   method: 'POST',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify(parameters)
-      // })
-      
-      onParametersChange?.(parameters)
-      setHasUnsavedChanges(false)
-      
+    if (isSaving) return;
+    
+    // Validate parameters before sending
+    const validationErrors = validateParameters();
+    if (validationErrors.length > 0) {
       toast({
-        title: "Parameters saved",
-        description: "Arbitrage parameters have been updated successfully.",
-      })
+        title: "Validation Error",
+        description: validationErrors.join(". "),
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    setIsSaving(true);
+    try {
+      // Prepare payload with only backend-relevant parameters
+      const payload = {
+        min_spread_threshold: parameters.min_spread_threshold,
+        min_trade_size: parameters.min_trade_size,
+        source: "frontend"
+      };
+
+      const response = await fetch('/api/arbitrage/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const result = await response.json();
+      
+      if (result.success) {
+        onParametersChange?.(parameters);
+        setHasUnsavedChanges(false);
+        
+        toast({
+          title: "Parameters saved",
+          description: "Arbitrage parameters have been updated successfully.",
+        });
+      } else {
+        // Handle backend validation errors
+        if (result.errors && Array.isArray(result.errors)) {
+          throw new Error(result.errors.join(". "));
+        } else {
+          throw new Error(result.message || "Failed to update parameters");
+        }
+      }
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
+      console.error("Failed to save arbitrage parameters:", error);
+      
       toast({
         title: "Error saving parameters",
-        description: "Failed to update arbitrage parameters. Please try again.",
+        description: errorMessage,
         variant: "destructive",
-      })
+      });
+    } finally {
+      setIsSaving(false);
     }
   }
 
@@ -142,6 +206,28 @@ export function ArbitrageParameters({ className, onParametersChange }: Arbitrage
           />
           <p className="text-xs text-muted-foreground">
             Minimum profit spread required to trigger an alert
+          </p>
+        </div>
+
+        <Separator />
+
+        {/* Minimum Trade Size */}
+        <div className="space-y-3">
+          <Label htmlFor="trade-size" className="text-sm font-medium">
+            Minimum Trade Size ($)
+          </Label>
+          <Input
+            id="trade-size"
+            type="number"
+            min="1"
+            max="10000"
+            step="0.1"
+            value={parameters.min_trade_size}
+            onChange={handleTradeSizeChange}
+            className="w-full"
+          />
+          <p className="text-xs text-muted-foreground">
+            Minimum trade size required to trigger arbitrage alerts ($1-$10,000)
           </p>
         </div>
 
@@ -243,11 +329,11 @@ export function ArbitrageParameters({ className, onParametersChange }: Arbitrage
         <div className="flex items-center gap-2 pt-2">
           <Button
             onClick={saveParameters}
-            disabled={!hasUnsavedChanges}
+            disabled={!hasUnsavedChanges || isSaving}
             className="flex-1"
           >
             <Save className="h-4 w-4 mr-2" />
-            Save Parameters
+            {isSaving ? "Saving..." : "Save Parameters"}
           </Button>
           <Button
             variant="outline"
@@ -263,6 +349,7 @@ export function ArbitrageParameters({ className, onParametersChange }: Arbitrage
           <h4 className="text-sm font-medium mb-2">Current Configuration</h4>
           <div className="grid grid-cols-2 gap-2 text-xs">
             <div>Min Spread: {formatPercentage(parameters.min_spread_threshold)}</div>
+            <div>Min Trade Size: ${parameters.min_trade_size}</div>
             <div>Max Alerts/min: {parameters.max_alerts_per_minute}</div>
             <div>Dedup: {formatPercentage(parameters.alert_deduplication_threshold)}</div>
             <div>Confidence: {formatPercentage(parameters.confidence_threshold)}</div>

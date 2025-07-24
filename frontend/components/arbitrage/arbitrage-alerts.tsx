@@ -20,6 +20,7 @@ interface ArbitrageAlert {
   kalshi_market_id?: number
   polymarket_asset_id?: string
   confidence: number
+  execution_size?: number
 }
 
 interface ArbitrageAlertsProps {
@@ -43,6 +44,10 @@ export function ArbitrageAlerts({ className }: ArbitrageAlertsProps) {
 
   const formatPrice = (price?: number) => {
     return price ? `$${price.toFixed(3)}` : "N/A"
+  }
+
+  const formatMaxSize = (size?: number) => {
+    return size ? `${size.toFixed(0)}` : "N/A"
   }
 
   const getDirectionIcon = (direction: string) => {
@@ -91,7 +96,7 @@ export function ArbitrageAlerts({ className }: ArbitrageAlertsProps) {
         </div>
       </CardHeader>
       <CardContent className="p-0">
-        <ScrollArea className="h-64">
+        <ScrollArea className="h-96">
           {alerts.length === 0 ? (
             <div className="flex items-center justify-center h-32 text-muted-foreground">
               No arbitrage alerts
@@ -131,6 +136,12 @@ export function ArbitrageAlerts({ className }: ArbitrageAlertsProps) {
                       <div className="text-xs text-muted-foreground">K / P</div>
                       <div>
                         {formatPrice(alert.kalshi_price)} / {formatPrice(alert.polymarket_price)}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-xs text-muted-foreground">Max Size</div>
+                      <div className="font-medium text-blue-600">
+                        {formatMaxSize(alert.execution_size)}
                       </div>
                     </div>
                     <div className="w-8 flex justify-center">
