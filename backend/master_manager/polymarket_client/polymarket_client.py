@@ -230,6 +230,113 @@ class PolymarketClient:
     def is_running(self) -> bool:
         return self.is_connected and self.should_reconnect
 
+    async def add_ticker(self, new_token_ids: List[str], old_token_ids: List[str] = None) -> bool:
+        """
+        Add token IDs to the current subscription by calling subscribe with expanded token list.
+        
+        Args:
+            new_token_ids: List of new token IDs to add to subscription
+            old_token_ids: List of currently subscribed token IDs (optional, uses self.token_id if not provided)
+            
+        Returns:
+            bool: True if successful, False otherwise
+            
+        Raises:
+            RuntimeError: If WebSocket is not connected
+        """
+        if not self.websocket or not self.is_connected:
+            logger.error("WebSocket is not connected. Cannot add ticker.")
+            raise RuntimeError("WebSocket is not connected. Cannot add ticker.")
+            
+        # Use current token_id list if old_token_ids not provided
+        if old_token_ids is None:
+            old_token_ids = self.token_id.copy() if self.token_id else []
+            
+        # Create combined token list (avoid duplicates)
+        combined_tokens = old_token_ids.copy()
+        for token_id in new_token_ids:
+            if token_id not in combined_tokens:
+                combined_tokens.append(token_id)
+                
+        logger.info(f"Adding {len(new_token_ids)} token(s) to subscription. Total will be {len(combined_tokens)}")
+        
+        # Update the client's token list
+        old_tokens = self.token_id.copy()
+        self.token_id = combined_tokens
+        
+        try:
+            # Use subscribe to update the subscription
+            result = await self.subscribe()
+            if result:
+                logger.info(f"Successfully added tokens. Now subscribed to {len(self.token_id)} tokens")
+                return True
+            else:
+                # Rollback on failure
+                self.token_id = old_tokens
+                logger.error("Failed to add tokens - rolled back token list")
+                return False
+        except Exception as e:
+            # Rollback on failure
+            self.token_id = old_tokens
+            logger.error(f"Error adding tokens: {e} - rolled back token list")
+            raise
+
+    async def remove_ticker(self, remove_token_ids: List[str], old_token_ids: List[str] = None) -> bool:
+        """
+        Remove token IDs from current subscription by calling subscribe with reduced token list.
+        
+        Args:
+            remove_token_ids: List of token IDs to remove from subscription
+            old_token_ids: List of currently subscribed token IDs (optional, uses self.token_id if not provided)
+            
+        Returns:
+            bool: True if successful, False otherwise
+            
+        Raises:
+            RuntimeError: If WebSocket is not connected
+        """
+        if not self.websocket or not self.is_connected:
+            logger.error("WebSocket is not connected. Cannot remove ticker.")
+            raise RuntimeError("WebSocket is not connected. Cannot remove ticker.")
+            
+        # Use current token_id list if old_token_ids not provided
+        if old_token_ids is None:
+            old_token_ids = self.token_id.copy() if self.token_id else []
+            
+        # Create reduced token list
+        reduced_tokens = []
+        for token_id in old_token_ids:
+            if token_id not in remove_token_ids:
+                reduced_tokens.append(token_id)
+                
+        # Handle edge case: if all tokens removed, use empty string (Polymarket quirk)
+        if not reduced_tokens:
+            reduced_tokens = [""]
+            
+        logger.info(f"Removing {len(remove_token_ids)} token(s) from subscription. Remaining: {len(reduced_tokens) if reduced_tokens != [''] else 0}")
+        
+        # Update the client's token list
+        old_tokens = self.token_id.copy()
+        self.token_id = reduced_tokens
+        
+        try:
+            # Use subscribe to update the subscription
+            result = await self.subscribe()
+            if result:
+                remaining_count = len(self.token_id) if self.token_id != [""] else 0
+                logger.info(f"Successfully removed tokens. Now subscribed to {remaining_count} tokens")
+                return True
+            else:
+                # Rollback on failure
+                self.token_id = old_tokens
+                logger.error("Failed to remove tokens - rolled back token list")
+                return False
+        except Exception as e:
+            # Rollback on failure
+            self.token_id = old_tokens
+            logger.error(f"Error removing tokens: {e} - rolled back token list")
+            raise
+
     def get_status(self) -> Dict[str, Any]:
         return {
             "connected": self.is_connected,

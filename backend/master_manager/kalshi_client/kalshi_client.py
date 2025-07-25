@@ -243,12 +243,13 @@ class KalshiClient:
         '''
         updateMessage = {
             "id": tracker_id,
-            "command": "update_subscription",
+            "cmd": "update_subscription",
             "params": {
                 "sids": [connection_sid],
-                "market_tickers": [newTicker]
-            },
-            "action": "addMarkets" #addMarkets in the @kalshi API
+                "market_tickers": [newTicker],
+                "action": "add_markets" #addMarkets in the @kalshi API
+            }
+            
         }
         logger.debug(f"Sending update subscription message: {updateMessage}")
         await self.websocket.send(json.dumps(updateMessage))
@@ -281,28 +282,13 @@ class KalshiClient:
         '''
         updateMessage = {
             "id": tracker_id,
-            "command": "update_subscription",
+            "cmd": "update_subscription",
             "params": {
                 "sids": [connection_sid],
-                "market_tickers": [oldTicker]
-            },
-            "action": "deleteMarkets" # delete markets in the @kalshiAPI
-        }
-        logger.debug(f"Sending update subscription message (remove): {updateMessage}")
-        await self.websocket.send(json.dumps(updateMessage))
-    
-    async def _attempt_addTicker(self, newTicker: str, tracker_id: int, connection_sid):
-        '''
-        Attempt to add a ticker instead of creating a new subscription via the websocket add tickers argument
-        '''
-        updateMessage = {
-            "id": tracker_id,
-            "command": "update_subscription",
-            "params": {
-                "sids": [connection_sid],
-                "market_tickers": [newTicker]
-            },
-            "action": "deleteMarkets" # delete markets in the @kalshiAPI
+                "market_tickers": [oldTicker],
+                "action": "delete_markets" # delete markets in the @kalshiAPI
+            }
+            
         }
         logger.debug(f"Sending update subscription message (remove): {updateMessage}")
         await self.websocket.send(json.dumps(updateMessage))
