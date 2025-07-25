@@ -290,6 +290,22 @@ class KalshiClient:
         }
         logger.debug(f"Sending update subscription message (remove): {updateMessage}")
         await self.websocket.send(json.dumps(updateMessage))
+    
+    async def _attempt_addTicker(self, newTicker: str, tracker_id: int, connection_sid):
+        '''
+        Attempt to add a ticker instead of creating a new subscription via the websocket add tickers argument
+        '''
+        updateMessage = {
+            "id": tracker_id,
+            "command": "update_subscription",
+            "params": {
+                "sids": [connection_sid],
+                "market_tickers": [newTicker]
+            },
+            "action": "deleteMarkets" # delete markets in the @kalshiAPI
+        }
+        logger.debug(f"Sending update subscription message (remove): {updateMessage}")
+        await self.websocket.send(json.dumps(updateMessage))
 
     async def _connect_with_retry(self) -> None:
         """Main connection loop with retry logic and monitoring."""
