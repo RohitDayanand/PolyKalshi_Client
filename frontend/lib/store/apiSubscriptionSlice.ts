@@ -22,6 +22,7 @@ interface Market {
   platform?: "polymarket" | "kalshi"
   tokenIds?: string[]
   kalshiTicker?: string
+  yes_subtitle?: string
 }
 
 // Only track subscription states, NOT market data
@@ -33,6 +34,9 @@ interface SubscriptionState {
   // Add essential display data
   market_title: string
   original_market_id: string
+  // Kalshi-specific display data
+  yes_subtitle?: string
+  kalshiTicker?: string
 }
 
 interface ApiSubscriptionState {
@@ -198,7 +202,9 @@ export const apiSubscriptionSlice = createSlice({
           status: apiResponse.status,
           subscribed_at: Date.now(),
           market_title: market.title,
-          original_market_id: market.id
+          original_market_id: market.id,
+          yes_subtitle: market.yes_subtitle,
+          kalshiTicker: market.kalshiTicker
         }
         
         // Add to pending WebSocket subscriptions
