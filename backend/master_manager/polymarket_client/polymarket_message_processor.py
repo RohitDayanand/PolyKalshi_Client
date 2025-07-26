@@ -124,10 +124,8 @@ class PolymarketMessageProcessor:
         
         # Ensure we have orderbook state for this asset
         if asset_id not in self.orderbooks:
-            self.orderbooks[asset_id] = PolymarketOrderbookState(
-                asset_id=asset_id,
-                market=market
-            )
+            logger.warning("Snapshot message with no tracked orderbook detected. This can be because of a recent removal or signal of a downstream market tracking error")
+            return
         
         orderbook = self.orderbooks[asset_id]
         current_time = datetime.now()
@@ -167,7 +165,7 @@ class PolymarketMessageProcessor:
         
         # Ensure we have orderbook state for this asset
         if asset_id not in self.orderbooks:
-            logger.warning(f"No orderbook state for asset_id={asset_id}, cannot apply price changes. Need book message first.")
+            logger.warning(f"No orderbook state for asset_id={asset_id}, cannot apply price changes. Need book message first. Or if the orderbook was removed recently, you can safely ignore")
             return
         
         orderbook = self.orderbooks[asset_id]
@@ -316,3 +314,102 @@ class PolymarketMessageProcessor:
             'asset_ids': list(self.orderbooks.keys()),
             'processor_status': 'running'
         }
+    
+    # Token Management Methods (for dynamic subscription changes)
+    def add_tokens(self, token_ids: List[str]) -> bool:
+        """
+        Initialize orderbook state for new tokens.
+        
+        Args:
+            token_ids: List of asset IDs to add
+            
+        Returns:
+            bool: True if successful
+        """
+        try:
+            for asset_id in token_ids:
+                if asset_id and asset_id not in self.orderbooks:
+                    # Initialize empty orderbook state for new asset
+                    self.orderbooks[asset_id] = PolymarketOrderbookState(asset_id)
+                    logger.info(f"Initialized orderbook state for new asset: {asset_id}")
+                elif asset_id in self.orderbooks:
+                    logger.debug(f"Asset {asset_id} already has orderbook state")
+            
+            logger.info(f"Added {len(token_ids)} tokens to PolymarketMessageProcessor. Total assets: {len(self.orderbooks)}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error adding tokens to PolymarketMessageProcessor: {e}")
+            return False
+    
+    def remove_tokens(self, token_ids: List[str]) -> bool:
+        """
+        Remove orderbook state for tokens.
+        
+        Args:
+            token_ids: List of asset IDs to remove
+            
+        Returns:
+            bool: True if successful
+        """
+        try:
+            removed_count = 0
+            for asset_id in token_ids:
+                if asset_id and asset_id in self.orderbooks:
+                    del self.orderbooks[asset_id]
+                    removed_count += 1
+                    logger.info(f"Removed orderbook state for asset: {asset_id}")
+                    
+                    # Also clean up from token_map if present
+                    if asset_id in self.token_map:
+                        del self.token_map[asset_id]
+                        logger.debug(f"Removed {asset_id} from token_map")
+                elif asset_id:
+                    logger.debug(f"Asset {asset_id} not found in orderbooks")
+            
+            logger.info(f"Removed {removed_count} tokens from PolymarketMessageProcessor. Remaining assets: {len(self.orderbooks)}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error removing tokens from PolymarketMessageProcessor: {e}")
+            return False
+    
+    # Event Handlers (for EventBus integration)
+    async def handle_tokens_added_event(self, added_tokens: List[str], market_id: str = "Unknown") -> None:
+        """
+        Handle tokens_added event from EventBus.
+        
+        Args:
+            event_data: Event data containing added tokens
+        """
+        try:
+            
+            if added_tokens:
+                success = self.add_tokens(added_tokens)
+                logger.debug(f"Handled tokens_added event for market {market_id}: {success}")
+            
+        except Exception as e:
+            logger.error(f"Error handling tokens_added event: {e}")
+    
+    async def handle_tokens_removed_event(self, removed_tokens: List[str], market_id: str = "Unknown") -> bool:
+        """
+        Handle tokens_removed event from EventBus.
+        
+        Args:
+            removed_tokens: List of CLOB token ids to remove from the susbcription
+            Optional market_id: singleton market id representing subscription in form "platform_PolyClobYes_PolyClobNo"
+
+        """
+        try:
+            
+            if removed_tokens:
+                success = self.remove_tokens(removed_tokens)
+                logger.debug(f"Handled tokens_removed event for market {market_id}: {success}")
+            
+            return success
+            
+        except Exception as e:
+            logger.error(f"Error handling tokens_removed event: {e}")
+            return False
+    
+    

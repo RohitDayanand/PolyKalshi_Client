@@ -227,7 +227,24 @@ class KalshiPlatformManager:
                 await self.clients[market_id].disconnect()
                 del self.clients[market_id]
                 self.connection_manager.remove_connection(market_id)
-                logger.info(f"Disconnected Kalshi {market_id}")
+
+                # Next step is to tell our message_processor to clean up state for this market_id
+                # If the disconnect fails, we want to maintain orderbook state hence this comes after the client disconnect
+                
+                if self.processor:
+                    # Parse ticker from market_id (remove "kalshi_" prefix if present)
+                    ticker = market_id.removeprefix("kalshi_")
+                    
+                    success = await self.processor.handle_market_removed_event(ticker, market_id)
+                else:
+                    logger.error("Remove market called and processor is not online")
+                    return False
+                
+                if not success:
+                    logger.error("MessageProcessor failed to clean up orderbook state, memory leakage possible")
+                    return False
+
+                logger.info(f"Disconnected Kalshi {market_id} and successfully removed orderbook state")
                 return True
             except Exception as e:
                 logger.error(f"Error disconnecting Kalshi {market_id}: {e}")

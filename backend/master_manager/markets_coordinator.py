@@ -1,8 +1,11 @@
 """
 MarketsCoordinator - Lightweight coordinator replacing the monolithic MarketsManager
 
-Provides a thin orchestration layer over platform-specific managers and services
-while maintaining backward compatibility with the existing interface.
+Provides a orchestration layer over platform-specific managers and services
+while maintaining backward compatibility with the existing callback interface.
+
+Maintains connection state with the websocket
+
 """
 import logging
 from typing import Dict, Any, Optional, List
@@ -39,6 +42,10 @@ class MarketsCoordinator:
         # Initialize platform managers
         self.kalshi_platform = KalshiPlatformManager(self.event_bus)
         self.polymarket_platform = PolymarketPlatformManager(self.event_bus)
+
+        #check if polymarket or kalshi is connected
+        self.isKalshiConnected = False
+        self.isPolymarketConnected = False
         
         # Initialize service coordinator
         self.service_coordinator = ServiceCoordinator(self.event_bus)
@@ -47,11 +54,12 @@ class MarketsCoordinator:
         self._async_started = False
         
         # Simple tracking of currently connected markets (one per platform)
-        self.current_markets = {
-            'kalshi': None,      # ticker string (e.g., "PREZ24")
-            'polymarket': None   # "yes_asset_id,no_asset_id" format
-        }
+
+        self.supported_platforms = {"kalshi", "polymarket"} #toplevel definition of supported platforms 
         
+        self.current_markets = {platform: None for platform in self.supported_platforms} #list comprehension for instantiation
+       
+
         # Set up global event handlers for WebSocket publishing
         self._setup_global_event_handlers()
         
@@ -162,6 +170,9 @@ class MarketsCoordinator:
             # Wire processors for arbitrage detection (after platforms are initialized)
             self._wire_processors()
             
+            # Wire up token event subscriptions for all components
+            self._setup_token_event_subscriptions()
+            
             self._async_started = True
             logger.info("✅ MarketsCoordinator async components started successfully")
             
@@ -186,9 +197,16 @@ class MarketsCoordinator:
         
         try:
             success = False
-            if platform.lower() == "polymarket":
+            
+            platform = platform.lower()
+
+            if platform not in self.supported_platforms:
+                logger.error(f"Unsupported platform: {platform}")
+                return False
+            
+            if platform == "polymarket":
                 success = await self.polymarket_platform.connect_market(market_id)
-            elif platform.lower() == "kalshi":
+            elif platform == "kalshi":
                 success = await self.kalshi_platform.connect_market(market_id)
             else:
                 logger.error(f"Unsupported platform: {platform}")
@@ -199,14 +217,24 @@ class MarketsCoordinator:
                 if platform.lower() == "kalshi":
                     # Extract ticker from market_id for Kalshi
                     ticker = market_id.removeprefix("kalshi_")
+
+                    #call local add callback to update 
+
                     self.current_markets['kalshi'] = ticker
                     logger.info(f"Tracking Kalshi ticker: {ticker} (from market_id: {market_id})")
+                    #self.isKalshiConnected = True #Presumptively assume that the kalshi connection exists and is living
                 elif platform.lower() == "polymarket":
                     # Parse Polymarket assets from market_id
                     parsed_assets = self._parse_polymarket_assets(market_id)
+
+                    #call local add callback to update
+
                     self.current_markets['polymarket'] = parsed_assets
                     logger.info(f"Tracking Polymarket assets: {parsed_assets} (from market_id: {market_id})")
+                    #self.isPolymarketConnected = True #Presumptively assume that the kalshi connection exists and is living
                 
+                #@TODO - this should be handled by the token add/token remove
+                #checks and adds arbitrage pair in case we need to do that here
                 self._check_and_add_arbitrage_pair()
             
             return success
@@ -295,7 +323,7 @@ class MarketsCoordinator:
             "connection_state": connection_state
         }
     
-    # Arbitrage Management Methods (delegated to service coordinator)
+    # Arbitrage Management Methods (delegated to service coordinator because it is a cross market service)
     def add_arbitrage_market_pair(self, market_pair: str, kalshi_ticker: str, polymarket_yes_asset_id: str, polymarket_no_asset_id: str):
         """Add a market pair for arbitrage monitoring."""
         return self.service_coordinator.add_arbitrage_market_pair(market_pair, kalshi_ticker, polymarket_yes_asset_id, polymarket_no_asset_id)
@@ -365,7 +393,7 @@ class MarketsCoordinator:
         logger.warning(f"Single Polymarket token provided: {single_token}. Creating placeholder pair.")
         return f"{single_token},placeholder_no"
     
-    def _check_and_add_arbitrage_pair(self):
+    def _check_and_add_arbitrage_pair(self): #make this into a check and modify arbitrage pair
         """
         Check if both platforms have connected markets and add arbitrage pair if so.
         """
@@ -385,7 +413,9 @@ class MarketsCoordinator:
                 
                 # Create a simple pair name using ticker and shortened asset ID
                 yes_asset_short = yes_asset_id[:12] + "..." if len(yes_asset_id) > 12 else yes_asset_id
-                pair_name = f"auto_pair_{kalshi_ticker}_{yes_asset_short}"
+                pair_name = f"auto_pair_{kalshi_ticker}_{yes_asset_short}" #create a arbitrage
+
+                self.pair_name = pair_name #currently we can only have one arb pair - this will change as we scale with client to Rust 
                 
                 logger.info(f"Both platforms connected - adding arbitrage pair: {pair_name} (ticker: {kalshi_ticker})")
                 self.add_arbitrage_market_pair(pair_name, kalshi_ticker, yes_asset_id, no_asset_id)
@@ -398,13 +428,20 @@ class MarketsCoordinator:
     def _remove_current_arbitrage_pair(self):
         """
         Remove the current arbitrage pair if one exists.
+        
+        Wrapped in try-catch to prevent crashes during cleanup.
         """
-        # Get all current arbitrage pairs and remove them (should be only one in this simple model)
-        if self.service_coordinator.arbitrage_service:
-            current_pairs = list(self.service_coordinator.arbitrage_service.market_pairs.keys())
-            for pair_name in current_pairs:
-                logger.info(f"Removing arbitrage pair: {pair_name}")
-                self.remove_arbitrage_market_pair(pair_name)
+        try:
+            # Get all current arbitrage pairs and remove them (should be only one in this simple model)
+            if self.service_coordinator.arbitrage_service:
+                current_pairs = list(self.service_coordinator.arbitrage_service.market_pairs.keys())
+
+                for pair_name in current_pairs:
+                    logger.info(f"Removing arbitrage pair: {pair_name}")
+                    self.remove_arbitrage_market_pair(pair_name)
+        except Exception as e:
+            logger.error(f"Error removing arbitrage pairs during cleanup: {e}")
+            # Continue execution - don't let arbitrage cleanup crash the disconnect process 
     
     # Connection State Tracking Methods  
     def get_connection_state(self) -> Dict[str, Any]:
@@ -461,6 +498,8 @@ class MarketsCoordinator:
             Dict with platform names as keys and current identifiers as values (ticker for Kalshi, market_id for Polymarket)
         """
         return self.current_markets.copy()
+    
+    
 
 # Convenience function for quick setup (backward compatibility)
 def create_markets_manager(config_path: Optional[str] = None) -> MarketsCoordinator:

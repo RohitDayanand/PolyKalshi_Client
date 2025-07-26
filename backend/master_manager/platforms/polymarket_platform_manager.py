@@ -7,8 +7,9 @@ queue, processor, ticker publisher, and client connections.
 import json
 import logging
 import os
-from typing import Dict, Any, List, Union
+from typing import Dict, Any, List, Optional, Union
 from datetime import datetime
+import asyncio
 
 from ..events.event_bus import EventBus
 from ..messaging.message_forwarder import MessageForwarder
@@ -264,7 +265,23 @@ class PolymarketPlatformManager:
                 await self.clients[market_id].disconnect()
                 del self.clients[market_id]
                 self.connection_manager.remove_connection(market_id)
-                logger.info(f"Disconnected Polymarket {market_id}")
+
+                #next step is to tell our message_processor to ignore messages with this market_id
+                #if the disconnect fails, we want to maintain orderbook state hence this comes after the self.clients disconnect
+
+                if self.processor:
+
+                    token_ids: List[str] = self._parse_token_ids(market_id)
+
+                    success = await self.processor.handle_tokens_removed_event(token_ids, market_id)
+                else:
+                    logger.error("Remove markets called and processor is not online")
+                
+                if not success:
+                    logger.error("MessageProcessor is still maintaining old orderbook state, memory leakage possible")
+                    return False
+
+                logger.info(f"Disconnected Polymarket {market_id} and successfuly removed orderbook state")
                 return True
             except Exception as e:
                 logger.error(f"Error disconnecting Polymarket {market_id}: {e}")
@@ -295,6 +312,128 @@ class PolymarketPlatformManager:
         self.connection_manager.clear_all_connections()
         self._async_started = False
         logger.info("All Polymarket clients disconnected")
+    
+    async def add_tokens_to_market(self, market_id: str) -> Dict[str, Any]:
+        """Add tokens to market subscription with fail-fast validation."""
+        add_tokens = self._parse_token_ids(market_id)
+        return await self._execute_token_operation(market_id, "add", add_tokens)
+    
+    async def remove_tokens_from_market(self, market_id: str, remove_tokens: List[str]) -> Dict[str, Any]:
+        """Remove tokens from market subscription with fail-fast validation.""" 
+        return await self._execute_token_operation(market_id, "remove", remove_tokens)
+    
+    async def _execute_token_operation(self, market_id: str, operation: str, tokens: List[str]) -> Dict[str, Any]:
+        """Execute token operation with fail-fast and simple rollback."""
+        # Fail-fast validation
+        if error := self._validate_operation(market_id, operation, tokens):
+            await self._handle_operation_result(market_id, operation, False, error=error)
+            return {"success": False, "error": error}
+        
+        # Store original state and execute
+        client = self.clients[market_id]
+        original_tokens = client.token_id.copy() if client.token_id else []
+        
+        try:
+            # Execute the risky WebSocket operation first
+            if operation == "add":
+                success = await client.add_ticker(tokens)
+            else:  # remove
+                success = await client.remove_ticker(tokens)
+            
+            if not success:
+                await self._handle_operation_result(market_id, operation, False, error="Client operation failed")
+                return {"success": False, "error": "client_operation_failed"}
+            
+            # Update tracking and notify success
+            self._update_tracking(client.token_id or [])
+            result_data = {"tokens": tokens, "total": len(client.token_id or [])}
+            await self._handle_operation_result(market_id, operation, True, data=result_data)
+            
+            return {"success": True, **result_data}
+            
+        except Exception as e:
+            # Simple rollback
+            await self._rollback_client(client, original_tokens, market_id)
+            await self._handle_operation_result(market_id, operation, False, error=str(e))
+            return {"success": False, "error": str(e)}
+    
+    def _validate_operation(self, market_id: str, operation: str, tokens: List[str]) -> Optional[str]: #
+        """Validate operation - return error message or None if valid."""
+        if not tokens:
+            return f"{operation}_tokens list cannot be empty"
+        if market_id not in self.clients:
+            return f"No client found for market {market_id}"
+        if not self.clients[market_id].is_connected:
+            return f"Client for market {market_id} is not connected"
+        return None
+    
+    def _update_tracking(self, current_tokens: List[str]):
+        """Update YES/NO tracking from current tokens."""
+        # Handle empty string quirk
+        if current_tokens == [""]:
+            current_tokens = []
+        
+        self.polymarket_yes_id = current_tokens[0] if len(current_tokens) > 0 else ""
+        self.polymarket_no_id = current_tokens[1] if len(current_tokens) > 1 else ""
+    
+    async def _rollback_client(self, client, original_tokens: List[str], market_id: str):
+        """Simple rollback - restore original subscription."""
+        try:
+            client.token_id = original_tokens
+            await client.subscribe()
+            self._update_tracking(original_tokens)
+            logger.info(f"Rollback successful for market {market_id}")
+        except Exception as e:
+            logger.error(f"Rollback failed for market {market_id}: {e}")
+            await self.event_bus.publish('polymarket.client_inconsistent', {
+                'market_id': market_id, 'error': str(e)
+            })
+    
+    async def _handle_operation_result(self, market_id: str, operation: str, success: bool, 
+                                     data: Dict[str, Any] = None, error: str = None):
+        """Unified handler for operation success/failure."""
+        # Update components asynchronously (fire-and-forget)
+        if success:
+            asyncio.create_task(self._notify_components(market_id, operation, data))
+        
+        # Notify frontend
+        await self.event_bus.publish(f'frontend.notify.{market_id}', {
+            'type': f'polymarket_{operation}_{"success" if success else "error"}',
+            'market_id': market_id,
+            'data' if success else 'error': data if success else error,
+            'timestamp': datetime.now().isoformat()
+        })
+    
+    async def _notify_components(self, market_id: str, operation: str, data: Dict[str, Any]):
+        """Notify other components of token changes."""
+        try:
+            await self.event_bus.publish(f'polymarket.tokens_{operation}d', {
+                'market_id': market_id,
+                'platform': self.platform,
+                **data,
+                'timestamp': datetime.now().isoformat()
+            })
+        except Exception as e:
+            logger.error(f"Failed to notify components for {market_id}: {e}")
+    
+    def get_market_token_info(self, market_id: str) -> Dict[str, Any]:
+        """Get current token info for a market."""
+        if market_id not in self.clients:
+            return {"error": "Market not found"}
+        
+        client = self.clients[market_id]
+        tokens = client.token_id or []
+        if tokens == [""]:
+            tokens = []
+        
+        return {
+            "market_id": market_id,
+            "tokens": tokens,
+            "count": len(tokens),
+            "connected": client.is_connected,
+            "yes_id": self.polymarket_yes_id,
+            "no_id": self.polymarket_no_id
+        }
     
     def get_stats(self) -> Dict[str, Any]:
         """Get comprehensive Polymarket platform statistics."""
