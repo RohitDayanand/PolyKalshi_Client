@@ -169,6 +169,20 @@ export class ServerMarketCache {
     this.kalshiCache.clearCache()
     //console.log('Server cache cleared')
   }
+
+  /**
+   * Get Kalshi cache instance
+   */
+  getKalshiCache(): KalshiServerCache {
+    return this.kalshiCache
+  }
+
+  /**
+   * Get Polymarket cache instance
+   */
+  getPolymarketCache(): PolymarketServerCache {
+    return this.polymarketCache
+  }
 }
 
 // Singleton instance for server use

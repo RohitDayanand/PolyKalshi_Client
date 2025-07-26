@@ -104,6 +104,7 @@ export abstract class BaseSearchService {
       price: cachedMarket.outcomes?.[0]?.price,
       platform: cachedMarket.platform,
       lastUpdated: cachedMarket.lastUpdated,
+      yes_subtitle: cachedMarket.yes_subtitle,
       // Backend tracking fields:
       tokenIds: cachedMarket.platform === 'polymarket' ? cachedMarket.clobTokenIds : undefined,
       kalshiTicker: cachedMarket.platform === 'kalshi' ? cachedMarket.id : undefined
