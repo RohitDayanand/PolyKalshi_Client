@@ -15,6 +15,8 @@ export interface CachedMarket {
   }>
   lastUpdated: string
   platform: 'polymarket' | 'kalshi'
+  price?: number // Last known price
+  yes_subtitle?: string // Kalshi: subtitle text for yes outcome
 }
 
 export interface SelectedToken {

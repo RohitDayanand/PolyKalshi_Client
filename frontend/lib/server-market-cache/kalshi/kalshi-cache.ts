@@ -106,7 +106,9 @@ export class KalshiServerCache extends BaseServerMarketCache {
           clobTokenIds: this.extractKalshiTokenIds(market),
           outcomes: this.extractKalshiOutcomes(market),
           lastUpdated: new Date().toISOString(),
-          platform: 'kalshi'
+          platform: 'kalshi',
+          price: market.price ? this.parseNumber(market.price) : undefined,
+          yes_subtitle: market.yes_sub_title || undefined
         })
         
         // Debug volume calculation for first few markets
@@ -165,8 +167,8 @@ export class KalshiServerCache extends BaseServerMarketCache {
     const outcomes = []
     
     // Extract yes/no prices
-    const yesPrice = this.parseNumber(market.yes_bid) || this.parseNumber(market.yes_ask) || 0.5
-    const noPrice = this.parseNumber(market.no_bid) || this.parseNumber(market.no_ask) || (1 - yesPrice)
+    const yesPrice = market.last_price ? this.parseNumber(market.last_price) / 100 : (this.parseNumber(market.yes_bid) || this.parseNumber(market.yes_ask) || 0.5)
+    const noPrice = market.last_price ? (100 - this.parseNumber(market.last_price)) / 100 : (this.parseNumber(market.no_bid) || this.parseNumber(market.no_ask) || (1 - yesPrice))
     
     const tokenIds = this.extractKalshiTokenIds(market)
     
