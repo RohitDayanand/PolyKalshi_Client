@@ -103,4 +103,17 @@ export abstract class BaseServerMarketCache {
    * Abstract method to transform API response to cached market format
    */
   abstract transformApiResponse(apiData: any): CachedMarket[]
+
+  /**
+   * Add a single market to the cache
+   */
+  async addMarket(market: CachedMarket): Promise<void> {
+    console.log('➕ Adding market to cache:', market.id, market.title)
+    this.memoryCache.set(market.id, market)
+    
+    // Update last update time to keep cache fresh
+    this.lastUpdate = Date.now()
+    
+    console.log('✅ Market added. Cache size:', this.memoryCache.size)
+  }
 }

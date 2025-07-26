@@ -1,8 +1,8 @@
 "use client"
 
 import { useMarketSubscription } from "@/lib/store/marketSubscriptionHooks"
-import { useAppSelector } from "@/lib/store/hooks"
-import { selectSubscriptions } from "@/lib/store/apiSubscriptionSlice"
+import { useAppSelector, useAppDispatch } from "@/lib/store/hooks"
+import { selectSubscriptions, removeSubscription } from "@/lib/store/apiSubscriptionSlice"
 import { useState, useEffect } from "react"
 import type { Market } from "@/types/market"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge"
 export function SubscribedMarkets() {
   const { isWebSocketConnected } = useMarketSubscription()
   const subscriptions = useAppSelector(selectSubscriptions)
+  const dispatch = useAppDispatch()
   
   // Convert Redux subscriptions to Market format
   const subscribedMarkets: Market[] = Object.values(subscriptions)
@@ -23,7 +24,9 @@ export function SubscribedMarkets() {
       title: sub.market_title,
       category: 'General',
       volume: 0,
-      platform: sub.platform as "polymarket" | "kalshi"
+      platform: sub.platform as "polymarket" | "kalshi",
+      yes_subtitle: sub.yes_subtitle,
+      kalshiTicker: sub.kalshiTicker
     }))
 
   const getConnectionIcon = (marketId: string) => {
@@ -51,8 +54,35 @@ export function SubscribedMarkets() {
     try {
       console.log('🔍 Unsubscribing from market:', marketId)
       
-      // TODO: Implement unsubscribe API call to backend
-      // For now, just remove from Redux state (handled by action creators)
+      const subscription = subscriptions[marketId]
+      if (!subscription) {
+        console.warn('No subscription found for market:', marketId)
+        return
+      }
+
+      // Call the Next.js API to unsubscribe from backend
+      const response = await fetch('/api/markets/unsubscribe', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          market_id: subscription.backend_market_id,
+          platform: subscription.platform,
+          client_id: `frontend_${Date.now()}`
+        })
+      })
+
+      const result = await response.json()
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to unsubscribe from backend')
+      }
+
+      console.log('✅ Backend unsubscribe successful:', result)
+      
+      // Remove from Redux state after successful backend call
+      dispatch(removeSubscription(marketId))
       
       console.log(`✅ Unsubscribed from market: ${marketId}`)
     } catch (error) {
@@ -90,6 +120,16 @@ export function SubscribedMarkets() {
               <div key={market.id} className="flex items-start justify-between p-2 rounded-md hover:bg-muted">
                 <div className="space-y-1">
                   <div className="font-medium text-sm">{market.title}</div>
+                  {market.platform === 'kalshi' && market.yes_subtitle && (
+                    <div className="text-xs text-muted-foreground italic">
+                      {market.yes_subtitle}
+                    </div>
+                  )}
+                  {market.platform === 'kalshi' && market.kalshiTicker && (
+                    <div className="text-xs font-mono text-muted-foreground">
+                      {market.kalshiTicker}
+                    </div>
+                  )}
                   <div className="flex items-center gap-2">
                     <Badge variant={market.platform === "polymarket" ? "default" : "secondary"} className="text-xs">
                       {market.platform}

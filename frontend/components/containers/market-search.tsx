@@ -159,10 +159,15 @@ export function MarketSearch({ platform }: MarketSearchProps) {
                         )}
                         {market.price && (
                           <span className="text-xs text-muted-foreground">
-                            {(market.price * 100).toFixed(1)}%
+                            ${market.price.toLocaleString()}
                           </span>
                         )}
                       </div>
+                      {market.platform === 'kalshi' && market.yes_subtitle && (
+                        <div className="text-xs text-muted-foreground italic mt-1">
+                          {market.yes_subtitle}
+                        </div>
+                      )}
                     </div>
                     {selectedMarkets.has(market.id) && (
                       <Check className="h-5 w-5 text-primary flex-shrink-0" />
