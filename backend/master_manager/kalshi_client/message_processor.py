@@ -14,6 +14,7 @@ Tracks sequence numbers and validates message ordering.
 import json
 import logging
 import asyncio
+import copy
 from typing import Dict, Any, Optional, Callable
 from datetime import datetime
 
@@ -503,6 +504,44 @@ class KalshiMessageProcessor:
         
         return ticker_state.get_summary_stats()
     
+    async def handle_market_removed_event(self, ticker: str, market_id: str) -> bool:
+        """
+        Handle market removal event by cleaning up orderbook and ticker state.
+        
+        Args:
+            ticker: Market ticker to remove (parsed from market_id)
+            market_id: Original market identifier for logging
+            
+        Returns:
+            bool: True if removal was successful
+        """
+        try:
+            removed_orderbook = False
+            removed_ticker = False
+            
+            # Remove orderbook state if it exists
+            if ticker in self.orderbooks:
+                del self.orderbooks[ticker]
+                removed_orderbook = True
+                logger.info(f"Removed orderbook state for ticker={ticker}")
+            
+            # Remove ticker state if it exists
+            if ticker in self.ticker_states:
+                del self.ticker_states[ticker]
+                removed_ticker = True
+                logger.info(f"Removed ticker state for ticker={ticker}")
+            
+            if removed_orderbook or removed_ticker:
+                logger.info(f"Successfully cleaned up Kalshi processor state for market_id={market_id}, ticker={ticker}")
+                return True
+            else:
+                logger.warning(f"No processor state found to remove for market_id={market_id}, ticker={ticker}")
+                return True  # Not an error - state may not have been created yet
+                
+        except Exception as e:
+            logger.error(f"Error removing processor state for market_id={market_id}, ticker={ticker}: {e}")
+            return False
+
     def get_stats(self) -> Dict[str, Any]:
         """Get processor statistics."""
         return {

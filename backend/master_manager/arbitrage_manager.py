@@ -369,6 +369,7 @@ class ArbitrageManager:
     
     def remove_market_pair(self, market_pair: str):
         """Remove a market pair from monitoring."""
+        '''Make sure proccess is atomic to avoid concurrency handling issues - use deep copy if needed since proccess is rare'''
         if market_pair in self.market_pairs:
             del self.market_pairs[market_pair]
             logger.info(f"Removed market pair: {market_pair}")
@@ -471,4 +472,5 @@ class ArbitrageManager:
             'detector_stats': self.detector.get_stats(),
             'status': 'active'
         }
+    
     

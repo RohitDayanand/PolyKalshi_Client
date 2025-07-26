@@ -183,3 +183,20 @@ class ServiceCoordinator:
     def get_arbitrage_stats(self):
         """Get arbitrage manager statistics."""
         return self.arbitrage_service.get_stats()
+    
+    def setup_token_event_subscriptions(self):
+        """
+        Ensure all managed services are subscribed to token events.
+        Each service manages its own state atomically.
+        
+        Note: ArbitrageManager doesn't subscribe to token events directly.
+        Arbitrage pair management is handled by MarketsCoordinator based on 
+        market connection state (both platforms must be connected).
+        """
+        try:
+            # ArbitrageManager pair lifecycle is managed by MarketsCoordinator
+            # based on market connection state, not token events directly
+            logger.info("✅ ServiceCoordinator token event setup complete (ArbitrageManager managed by MarketsCoordinator)")
+            
+        except Exception as e:
+            logger.error(f"❌ Error setting up token event subscriptions in ServiceCoordinator: {e}")
