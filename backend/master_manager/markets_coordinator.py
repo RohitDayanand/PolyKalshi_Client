@@ -169,9 +169,7 @@ class MarketsCoordinator:
             
             # Wire processors for arbitrage detection (after platforms are initialized)
             self._wire_processors()
-            
-            # Wire up token event subscriptions for all components
-            self._setup_token_event_subscriptions()
+        
             
             self._async_started = True
             logger.info("✅ MarketsCoordinator async components started successfully")
@@ -233,7 +231,6 @@ class MarketsCoordinator:
                     logger.info(f"Tracking Polymarket assets: {parsed_assets} (from market_id: {market_id})")
                     #self.isPolymarketConnected = True #Presumptively assume that the kalshi connection exists and is living
                 
-                #@TODO - this should be handled by the token add/token remove
                 #checks and adds arbitrage pair in case we need to do that here
                 self._check_and_add_arbitrage_pair()
             

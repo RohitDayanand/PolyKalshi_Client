@@ -235,12 +235,20 @@ class PolymarketPlatformManager:
             client.set_connection_callback(connection_callback)
             client.set_error_callback(error_callback)
             
+            
+            if not self.processor:
+                logger.error("Fatal error - proccessor service is not started or not initialized. Ensure that processor service is initialized within the factory stack")
+                return False
+            
+            #Tell our upstream message processor to anticipate messages from the tokenIds
+            message_processor_update_result = await self.processor.handle_tokens_added_event(token_ids)
+
             # Connect to websocket
             connection_result = await client.connect()
             
-            if connection_result and client.is_connected:
+            if connection_result and client.is_connected and message_processor_update_result:
                 self.clients[market_id] = client
-                logger.info(f"Successfully connected Polymarket {market_id}")
+                logger.info(f"Successfully connected Polymarket and notified upstream consumers of incoming messages {market_id}")
                 return True
             else:
                 logger.error(f"Failed to connect Polymarket {market_id}")

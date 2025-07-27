@@ -2,7 +2,7 @@
 
 import { useMarketSubscription } from "@/lib/store/marketSubscriptionHooks"
 import { useAppSelector, useAppDispatch } from "@/lib/store/hooks"
-import { selectSubscriptions, removeSubscription } from "@/lib/store/apiSubscriptionSlice"
+import { selectSubscriptions, removeSubscription, callUnsubscriptionAPI } from "@/lib/store/apiSubscriptionSlice"
 import { useState, useEffect } from "react"
 import type { Market } from "@/types/market"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -26,7 +26,8 @@ export function SubscribedMarkets() {
       volume: 0,
       platform: sub.platform as "polymarket" | "kalshi",
       yes_subtitle: sub.yes_subtitle,
-      kalshiTicker: sub.kalshiTicker
+      kalshiTicker: sub.kalshiTicker,
+      tokenIds: sub.tokenIds  // Include original tokenIds for proper unsubscription
     }))
 
   const getConnectionIcon = (marketId: string) => {
@@ -52,39 +53,29 @@ export function SubscribedMarkets() {
   
   const unsubscribeFromMarket = async (marketId: string) => {
     try {
-      console.log('🔍 Unsubscribing from market:', marketId)
+      console.log('🗑️ Unsubscribing from market using subscribe endpoint with isRemove:', marketId)
       
+      // Find the subscription and corresponding market data
       const subscription = subscriptions[marketId]
       if (!subscription) {
         console.warn('No subscription found for market:', marketId)
         return
       }
 
-      // Call the Next.js API to unsubscribe from backend
-      const response = await fetch('/api/markets/unsubscribe', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          market_id: subscription.backend_market_id,
-          platform: subscription.platform,
-          client_id: `frontend_${Date.now()}`
-        })
-      })
-
-      const result = await response.json()
-      
-      if (!result.success) {
-        throw new Error(result.error || 'Failed to unsubscribe from backend')
+      // Find the market from subscribedMarkets which already has all the original data including tokenIds
+      const market = subscribedMarkets.find(m => m.id === marketId)
+      if (!market) {
+        console.warn('No market data found for:', marketId)
+        return
       }
 
-      console.log('✅ Backend unsubscribe successful:', result)
+      // Use the new unsubscription API that calls subscribe endpoint with isRemove: true
+      await dispatch(callUnsubscriptionAPI({ 
+        platform: subscription.platform as "polymarket" | "kalshi", 
+        market 
+      })).unwrap()
       
-      // Remove from Redux state after successful backend call
-      dispatch(removeSubscription(marketId))
-      
-      console.log(`✅ Unsubscribed from market: ${marketId}`)
+      console.log(`✅ Unsubscribed from market using subscribe endpoint: ${marketId}`)
     } catch (error) {
       console.error('Error unsubscribing from market:', error)
     }

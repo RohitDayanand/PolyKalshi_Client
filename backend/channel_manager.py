@@ -330,6 +330,78 @@ class ChannelManager:
         except Exception as e:
             raise e
     
+    def remove_market_from_cache(self, market_id: str) -> bool:
+        """
+        Remove market from caches AND subscriptions without needing WebSocket reference (async-safe).
+        
+        This helper method allows platform managers to clean up ChannelManager state
+        when disconnecting markets, preventing race conditions and stale cache entries.
+        Uses atomic copy-swap pattern to prevent race conditions during concurrent access.
+        
+        Removes the market from:
+        1. _market_cache (performance cache)
+        2. All WebSocket subscriptions (prevents cache rebuild adding it back)
+        3. Forces cache invalidation for consistency
+        
+        Args:
+            market_id: Market identifier to remove from caches and subscriptions.
+                      For Kalshi: "kalshi_TICKER" (e.g., "kalshi_PRES24-DJT")  
+                      For Polymarket: "polymarket_asset1_id,asset2_id" (e.g., "polymarket_123,456")
+                      
+        Returns:
+            bool: True if market was found and removed, False if not found
+        """
+        try:
+            # Create atomic copies of current state
+            new_market_cache = self._market_cache.copy()  # Shallow copy for atomic swap
+            new_subscriptions = {}  # Will rebuild subscriptions without the market
+            
+            market_found_in_cache = False
+            subscriptions_cleaned = 0
+            
+            # Remove from market-specific cache copy (not original state)
+            if market_id in new_market_cache:
+                del new_market_cache[market_id]
+                market_found_in_cache = True
+                logger.info(f"🧹 CHANNEL MANAGER: Prepared removal of market {market_id} from market cache")
+            
+            # Remove market subscriptions from ALL websockets (atomic copy-swap)
+            for websocket, subscription_filters in self.subscriptions.items():
+                # Filter out subscriptions matching this market_id
+                filtered_subscriptions = [
+                    sub_filter for sub_filter in subscription_filters
+                    if not (sub_filter.subscription_type == SubscriptionType.MARKET and 
+                           sub_filter.market_id == market_id)
+                ]
+                
+                # Track if we filtered any subscriptions for this websocket
+                if len(filtered_subscriptions) < len(subscription_filters):
+                    subscriptions_cleaned += len(subscription_filters) - len(filtered_subscriptions)
+                
+                new_subscriptions[websocket] = filtered_subscriptions
+            
+            # Atomic swap: replace entire dictionaries in one operation
+            if market_found_in_cache or subscriptions_cleaned > 0:
+                # This is the critical section - atomic updates
+                self._market_cache = new_market_cache
+                self.subscriptions = new_subscriptions
+                
+                # Force complete cache invalidation to rebuild other caches consistently
+                self._invalidate_cache()
+                
+                logger.info(f"🧹 CHANNEL MANAGER: Atomically removed market {market_id} - "
+                           f"cache_entries={1 if market_found_in_cache else 0}, "
+                           f"subscriptions_cleaned={subscriptions_cleaned}")
+                return True
+            else:
+                logger.debug(f"🧹 CHANNEL MANAGER: Market {market_id} not found in caches or subscriptions")
+                return False
+                
+        except Exception as e:
+            logger.error(f"🧹 CHANNEL MANAGER: Error removing market {market_id} from state: {e}")
+            # State remains unchanged due to atomic operation failure
+            return False
+
     def get_stats(self) -> Dict[str, Any]:
         """Get channel manager statistics"""
         return {
@@ -345,9 +417,17 @@ def create_all_subscription() -> SubscriptionFilter:
 
 def create_market_subscription(market_id: str) -> SubscriptionFilter:
     """Create subscription for market-specific updates"""
+    if "polymarket" in market_id:
+        platform = "polymarket"
+    elif "kalshi" in market_id:
+        platform = "kalshi"
+    else:
+        platform = "unknown"
+
     return SubscriptionFilter(
         subscription_type=SubscriptionType.MARKET,
-        market_id=market_id
+        market_id=market_id,
+        platform=platform
     )
 
 def create_volume_filter_subscription(min_volume: float, platform: str = None) -> SubscriptionFilter:

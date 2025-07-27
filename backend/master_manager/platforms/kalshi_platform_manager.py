@@ -70,7 +70,7 @@ class KalshiPlatformManager:
         self._async_started = False
         
         # Single market tracking (maintaining legacy interface)
-        self.kalshi_sid = -1
+        self.kalshi_sid = -1 #this means no sid has actually been set yet - it's a default value for debugging
         
         # Wire up Kalshi-specific event handling
         self._wire_kalshi_specific_callbacks()
@@ -196,6 +196,18 @@ class KalshiPlatformManager:
             client.set_message_callback(message_callback)
             client.set_connection_callback(connection_callback)
             client.set_error_callback(error_callback)
+
+            # Notify processor to expect messages from this thread (resolves TODO)
+            if not self.processor:
+                logger.error("Fatal error - kalshi processor not initialized at market creation time. Ensure processor reference is not being overwritten or corrupted")
+                return False
+            
+            # Proactively initialize orderbook state in processor before messages arrive
+            processor_notified = await self.processor.add_ticker(ticker, self.kalshi_sid)
+            if processor_notified:
+                logger.info(f"Notified processor to expect messages for ticker={ticker}, sid={self.kalshi_sid}")
+            else:
+                logger.warning(f"Processor already has state for ticker={ticker}, continuing with connection")
             
             # Connect to websocket
             connection_result = await client.connect()

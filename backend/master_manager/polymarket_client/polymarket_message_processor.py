@@ -14,6 +14,7 @@ Polymarket YES and NO markets are separate asset_ids.
 import json
 import logging
 import asyncio
+import copy
 from typing import Dict, Any, Optional, List, Callable
 from datetime import datetime
 
@@ -344,7 +345,10 @@ class PolymarketMessageProcessor:
     
     def remove_tokens(self, token_ids: List[str]) -> bool:
         """
-        Remove orderbook state for tokens.
+        Remove orderbook state for tokens using atomic swap to prevent race conditions.
+        
+        This method uses an atomic copy-swap pattern to prevent race conditions during
+        concurrent access to the processor state dictionaries.
         
         Args:
             token_ids: List of asset IDs to remove
@@ -353,29 +357,43 @@ class PolymarketMessageProcessor:
             bool: True if successful
         """
         try:
+            # Create atomic copies of current state
+            new_orderbooks = copy.deepcopy(self.orderbooks)
+            new_token_map = copy.deepcopy(self.token_map)
+            
             removed_count = 0
             for asset_id in token_ids:
-                if asset_id and asset_id in self.orderbooks:
-                    del self.orderbooks[asset_id]
+                if asset_id and asset_id in new_orderbooks:
+                    del new_orderbooks[asset_id]
                     removed_count += 1
-                    logger.info(f"Removed orderbook state for asset: {asset_id}")
+                    logger.info(f"Prepared orderbook state removal for asset: {asset_id}")
                     
-                    # Also clean up from token_map if present
-                    if asset_id in self.token_map:
-                        del self.token_map[asset_id]
-                        logger.debug(f"Removed {asset_id} from token_map")
+                    # Also clean up from token_map copy if present
+                    if asset_id in new_token_map:
+                        del new_token_map[asset_id]
+                        logger.debug(f"Prepared {asset_id} removal from token_map")
                 elif asset_id:
                     logger.debug(f"Asset {asset_id} not found in orderbooks")
             
-            logger.info(f"Removed {removed_count} tokens from PolymarketMessageProcessor. Remaining assets: {len(self.orderbooks)}")
+            # Atomic swap: replace entire dictionaries in one operation
+            if removed_count > 0:
+                # Atomically update state - this is the critical section
+                self.orderbooks = new_orderbooks
+                self.token_map = new_token_map
+                
+                logger.info(f"Atomically removed {removed_count} tokens from PolymarketMessageProcessor. Remaining assets: {len(self.orderbooks)}")
+            else:
+                logger.info("No tokens were removed - none found in current state")
+            
             return True
             
         except Exception as e:
-            logger.error(f"Error removing tokens from PolymarketMessageProcessor: {e}")
+            logger.error(f"Error during atomic token removal from PolymarketMessageProcessor: {e}")
+            # State remains unchanged due to atomic operation failure
             return False
     
     # Event Handlers (for EventBus integration)
-    async def handle_tokens_added_event(self, added_tokens: List[str], market_id: str = "Unknown") -> None:
+    async def handle_tokens_added_event(self, added_tokens: List[str], market_id: str = "Unknown") -> bool:
         """
         Handle tokens_added event from EventBus.
         
@@ -387,29 +405,38 @@ class PolymarketMessageProcessor:
             if added_tokens:
                 success = self.add_tokens(added_tokens)
                 logger.debug(f"Handled tokens_added event for market {market_id}: {success}")
+            if success:
+                return True
+            else:
+                return False
             
         except Exception as e:
             logger.error(f"Error handling tokens_added event: {e}")
+            return False
     
     async def handle_tokens_removed_event(self, removed_tokens: List[str], market_id: str = "Unknown") -> bool:
         """
-        Handle tokens_removed event from EventBus.
+        Handle tokens_removed event from EventBus using atomic operations.
         
         Args:
-            removed_tokens: List of CLOB token ids to remove from the susbcription
-            Optional market_id: singleton market id representing subscription in form "platform_PolyClobYes_PolyClobNo"
+            removed_tokens: List of CLOB token ids to remove from the subscription
+            market_id: Optional market id representing subscription in form "platform_PolyClobYes_PolyClobNo"
 
+        Returns:
+            bool: True if removal was successful, False otherwise
         """
         try:
+            if not removed_tokens:
+                logger.warning(f"No tokens provided for removal in market {market_id}")
+                return True  # Empty removal is considered successful
             
-            if removed_tokens:
-                success = self.remove_tokens(removed_tokens)
-                logger.debug(f"Handled tokens_removed event for market {market_id}: {success}")
+            success = self.remove_tokens(removed_tokens)
+            logger.debug(f"Handled tokens_removed event for market {market_id}: {success}")
             
             return success
             
         except Exception as e:
-            logger.error(f"Error handling tokens_removed event: {e}")
+            logger.error(f"Error handling tokens_removed event for market {market_id}: {e}")
             return False
     
     
