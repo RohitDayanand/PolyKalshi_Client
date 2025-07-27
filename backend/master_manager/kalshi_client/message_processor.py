@@ -259,11 +259,8 @@ class KalshiMessageProcessor:
         # Ensure we have orderbook state for this market
         ticker = metadata.get('ticker')
         if ticker not in self.orderbooks:
-            self.orderbooks[ticker] = OrderbookState(
-                sid=sid,
-                market_ticker=ticker
-            )
-            logger.info(f"Created new orderbook state for ticker={ticker}")
+            logger.warning("No orderbook detected for incoming message in kalshi. Possible initializaiton failure or just stale messages from the queue. If latter ignore. ")
+            return 
         
         orderbook = self.orderbooks[ticker]
         current_time = datetime.now()
@@ -506,7 +503,10 @@ class KalshiMessageProcessor:
     
     async def handle_market_removed_event(self, ticker: str, market_id: str) -> bool:
         """
-        Handle market removal event by cleaning up orderbook and ticker state.
+        Handle market removal event by cleaning up orderbook and ticker state using atomic swap.
+        
+        This method uses an atomic copy-swap pattern to prevent race conditions during
+        concurrent access to the processor state dictionaries.
         
         Args:
             ticker: Market ticker to remove (parsed from market_id)
@@ -516,30 +516,72 @@ class KalshiMessageProcessor:
             bool: True if removal was successful
         """
         try:
+            # Create atomic copies of current state
+            new_orderbooks = copy.deepcopy(self.orderbooks)
+            new_ticker_states = copy.deepcopy(self.ticker_states)
+            
             removed_orderbook = False
             removed_ticker = False
             
-            # Remove orderbook state if it exists
-            if ticker in self.orderbooks:
-                del self.orderbooks[ticker]
+            # Remove from copies (not original state)
+            if ticker in new_orderbooks:
+                del new_orderbooks[ticker]
                 removed_orderbook = True
-                logger.info(f"Removed orderbook state for ticker={ticker}")
+                logger.info(f"Prepared orderbook state removal for ticker={ticker}")
             
-            # Remove ticker state if it exists
-            if ticker in self.ticker_states:
-                del self.ticker_states[ticker]
+            if ticker in new_ticker_states:
+                del new_ticker_states[ticker]
                 removed_ticker = True
-                logger.info(f"Removed ticker state for ticker={ticker}")
+                logger.info(f"Prepared ticker state removal for ticker={ticker}")
             
+            # Atomic swap: replace entire dictionaries in one operation
             if removed_orderbook or removed_ticker:
-                logger.info(f"Successfully cleaned up Kalshi processor state for market_id={market_id}, ticker={ticker}")
+                # Atomically update state - this is the critical section
+                self.orderbooks = new_orderbooks
+                self.ticker_states = new_ticker_states
+                
+                logger.info(f"Atomically cleaned up Kalshi processor state for market_id={market_id}, ticker={ticker}")
                 return True
             else:
                 logger.warning(f"No processor state found to remove for market_id={market_id}, ticker={ticker}")
                 return True  # Not an error - state may not have been created yet
                 
         except Exception as e:
-            logger.error(f"Error removing processor state for market_id={market_id}, ticker={ticker}: {e}")
+            logger.error(f"Error during atomic state removal for market_id={market_id}, ticker={ticker}: {e}")
+            # State remains unchanged due to atomic operation failure
+            return False
+
+    async def add_ticker(self, ticker: str, sid: int) -> bool:
+        """
+        Proactively add orderbook state for a ticker (lazy initialization).
+        
+        This method allows the platform manager to notify the processor that it should
+        expect messages for a specific ticker/sid combination before those messages
+        actually arrive, preventing race conditions and enabling proper error detection.
+        
+        Args:
+            ticker: Market ticker symbol
+            sid: Subscription ID for this market
+            
+        Returns:
+            bool: True if ticker was added successfully, False if already exists
+        """
+        try:
+            if ticker in self.orderbooks:
+                logger.info(f"Ticker {ticker} already exists in orderbook state, skipping")
+                return False
+            
+            # Create empty orderbook state for this ticker
+            self.orderbooks[ticker] = OrderbookState(
+                sid=sid,
+                market_ticker=ticker
+            )
+            
+            logger.info(f"Added orderbook state for ticker={ticker}, sid={sid} (proactive initialization)")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error adding ticker {ticker} (sid={sid}): {e}")
             return False
 
     def get_stats(self) -> Dict[str, Any]:

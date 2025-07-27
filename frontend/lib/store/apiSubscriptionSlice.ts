@@ -5,6 +5,7 @@ interface MarketSubscriptionRequest {
   platform: "polymarket" | "kalshi"
   market_identifier: string
   client_id?: string
+  isRemove?: boolean
 }
 
 interface MarketSubscriptionResponse {
@@ -37,6 +38,8 @@ interface SubscriptionState {
   // Kalshi-specific display data
   yes_subtitle?: string
   kalshiTicker?: string
+  // Polymarket-specific data for proper unsubscription
+  tokenIds?: string[]
 }
 
 interface ApiSubscriptionState {
@@ -57,6 +60,79 @@ const initialState: ApiSubscriptionState = {
   lastError: null,
   pendingWebSocketSubscriptions: [],
 }
+
+// Async thunk for unsubscription using subscribe endpoint with isRemove: true
+export const callUnsubscriptionAPI = createAsyncThunk(
+  'apiSubscription/callUnsubscriptionAPI',
+  async ({ platform, market }: { platform: "polymarket" | "kalshi"; market: Market }) => {
+    // For Polymarket: pass full tokenIds array as JSON string for proper pair handling
+    // For Kalshi: pass single ticker identifier
+    const marketIdentifier = platform === "polymarket" 
+      ? JSON.stringify(market.tokenIds)  // Full token array as JSON
+      : (market.kalshiTicker || market.id)              // Single ticker for Kalshi
+    
+    console.log('🗑️ Market Identifier Extraction for Removal:', { 
+      platform, 
+      marketTitle: market.title,
+      originalTokenIds: market.tokenIds,
+      originalKalshiTicker: market.kalshiTicker,
+      extractedIdentifier: marketIdentifier 
+    })
+
+    const request: MarketSubscriptionRequest = {
+      platform,
+      market_identifier: marketIdentifier,
+      client_id: `frontend_${Date.now()}`,
+      isRemove: true  // This is the key difference
+    }
+
+    console.log('📤 Calling Backend API for Removal:', {
+      url: 'http://localhost:8000/api/markets/subscribe',
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: request,
+      requestString: JSON.stringify(request)
+    })
+
+    const response = await fetch('http://localhost:8000/api/markets/subscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request)
+    })
+
+    console.log('📡 HTTP Response Status for Removal:', {
+      status: response.status,
+      statusText: response.statusText,
+      ok: response.ok,
+      headers: Object.fromEntries(response.headers.entries())
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('❌ HTTP Error Response for Removal:', errorText)
+      throw new Error(`HTTP ${response.status}: ${response.statusText} - ${errorText}`)
+    }
+
+    const apiResponse: MarketSubscriptionResponse = await response.json()
+
+    console.log('📥 Backend API Response for Removal:', {
+      success: apiResponse.success,
+      status: apiResponse.status,
+      market_id: apiResponse.market_id,
+      platform: apiResponse.platform,
+      message: apiResponse.message,
+      websocket_url: apiResponse.websocket_url,
+      market_info: apiResponse.market_id,
+      fullResponse: apiResponse
+    })
+
+    if (!apiResponse.success) {
+      throw new Error(`Backend error: ${apiResponse.message}`)
+    }
+
+    return { apiResponse, market, platform }
+  }
+)
 
 // Async thunk for backend API call
 export const callSubscriptionAPI = createAsyncThunk(
@@ -204,7 +280,8 @@ export const apiSubscriptionSlice = createSlice({
           market_title: market.title,
           original_market_id: market.id,
           yes_subtitle: market.yes_subtitle,
-          kalshiTicker: market.kalshiTicker
+          kalshiTicker: market.kalshiTicker,
+          tokenIds: market.tokenIds  // Store original tokenIds for proper unsubscription
         }
         
         // Add to pending WebSocket subscriptions
@@ -214,6 +291,29 @@ export const apiSubscriptionSlice = createSlice({
         console.error('❌ API subscription failed:', action.error.message)
         state.isLoading = false
         state.lastError = action.error.message || 'API call failed'
+      })
+      .addCase(callUnsubscriptionAPI.pending, (state) => {
+        state.isLoading = true
+        state.lastError = null
+      })
+      .addCase(callUnsubscriptionAPI.fulfilled, (state, action) => {
+        const { apiResponse, market, platform } = action.payload
+        console.log('✅ API unsubscription successful:', apiResponse.market_id)
+        
+        state.isLoading = false
+        
+        // Remove the subscription from state
+        delete state.subscriptions[market.id]
+        
+        // Remove from pending WebSocket subscriptions if present
+        state.pendingWebSocketSubscriptions = state.pendingWebSocketSubscriptions.filter(
+          id => id !== apiResponse.market_id
+        )
+      })
+      .addCase(callUnsubscriptionAPI.rejected, (state, action) => {
+        console.error('❌ API unsubscription failed:', action.error.message)
+        state.isLoading = false
+        state.lastError = action.error.message || 'API unsubscription failed'
       })
   }
 })

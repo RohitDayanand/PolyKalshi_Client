@@ -151,11 +151,6 @@ class GlobalManager:
         subscription = create_market_subscription(market_id)
         self.channel_manager.subscribe(websocket, subscription)
     
-    def subscribe_to_platform(self, websocket: WebSocket, platform: str):
-        """Subscribe WebSocket to specific platform updates"""
-        subscription = create_platform_subscription(platform)
-        self.channel_manager.subscribe(websocket, subscription)
-    
     def unsubscribe_from_market(self, websocket: WebSocket, market_id: str):
         """Unsubscribe WebSocket from market updates"""
         self.channel_manager.unsubscribe(websocket, SubscriptionType.MARKET, market_id=market_id)
@@ -279,8 +274,20 @@ async def handle_market_connection(platform: str, market_id: str, optionalRemove
             connection_state_manager.update_status(market_id, "failed", "MarketsCoordinator not available")
             success = False
         elif optionalRemoveMarket:
+            logger.info(f"Starting disconnection for {platform} market: {market_id}")
+            
+            # STEP 1: Clean frontend subscriptions FIRST (immediate user effect)
+            from backend.global_manager import global_channel_manager
+            cache_cleaned = global_channel_manager.remove_market_from_cache(market_id)
+            logger.info(f"Frontend subscriptions cleaned for {market_id}: {cache_cleaned}")
+            
+            # STEP 2: Clean backend connections SECOND (async)
             logger.info(f"Disconnecting {platform} market via MarketsCoordinator: {market_id}")
-            success = await markets_coordinator.disconnect(market_id, platform)
+            backend_success = await markets_coordinator.disconnect(market_id, platform)
+            logger.info(f"Backend disconnection for {market_id}: {backend_success}")
+            
+            # Overall success requires at least one step to succeed
+            success = cache_cleaned or backend_success
         else:
             # Call MarketsCoordinator.connect() with proper parameters
             logger.info(f"Connecting to {platform} market via MarketsCoordinator: {market_id}")
@@ -510,7 +517,7 @@ async def subscribe_to_market(request: MarketSubscriptionRequest):
             existing_state = connection_state_manager.get_state(market_id)
             logger.info(f"🔍 Checking existing connection state for {market_id}: {existing_state}")
             
-            if existing_state and existing_state["status"] == "connected":
+            if existing_state and existing_state["status"] == "connected" and not request.isRemove:
                 elapsed_time = time.time() - start_time
                 logger.info(f"♻️ Market {market_id} already connected, returning existing connection (took {elapsed_time:.3f}s)")
                 return MarketSubscriptionResponse(
