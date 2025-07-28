@@ -352,7 +352,7 @@ class ArbitrageManager:
     
     def add_market_pair(self, market_pair: str, kalshi_ticker: str, polymarket_yes_asset_id: str, polymarket_no_asset_id: str):
         """
-        Add a market pair for arbitrage monitoring.
+        Add a market pair for arbitrage monitoring (atomic operation).
         
         Args:
             market_pair: Human-readable market pair identifier
@@ -360,19 +360,68 @@ class ArbitrageManager:
             polymarket_yes_asset_id: Polymarket YES asset ID
             polymarket_no_asset_id: Polymarket NO asset ID
         """
-        self.market_pairs[market_pair] = {
-            'kalshi_ticker': kalshi_ticker,
-            'polymarket_yes_asset_id': polymarket_yes_asset_id,
-            'polymarket_no_asset_id': polymarket_no_asset_id
-        }
-        logger.info(f"Added market pair: {market_pair} -> Kalshi:{kalshi_ticker}, Poly:{polymarket_yes_asset_id}/{polymarket_no_asset_id}")
+        try:
+            # Create atomic copy of current market pairs
+            new_market_pairs = self.market_pairs.copy()
+            
+            # Check if already exists
+            was_update = market_pair in new_market_pairs
+            
+            # Add to copy (not original state)
+            new_market_pairs[market_pair] = {
+                'kalshi_ticker': kalshi_ticker,
+                'polymarket_yes_asset_id': polymarket_yes_asset_id,
+                'polymarket_no_asset_id': polymarket_no_asset_id
+            }
+            
+            # Atomic swap: replace entire dictionary in one operation
+            self.market_pairs = new_market_pairs
+            
+            action = "Updated" if was_update else "Added"
+            logger.info(f"🔗 ARBITRAGE MANAGER: {action} market pair: {market_pair} -> Kalshi:{kalshi_ticker}, Poly:{polymarket_yes_asset_id}/{polymarket_no_asset_id}")
+            logger.info(f"🔗 ARBITRAGE MANAGER: Total market pairs: {len(self.market_pairs)}")
+            logger.debug(f"🔗 ARBITRAGE MANAGER: Active pairs: {list(self.market_pairs.keys())}")
+            
+        except Exception as e:
+            logger.error(f"🔗 ARBITRAGE MANAGER: Error adding market pair {market_pair}: {e}")
+            # State remains unchanged due to atomic operation failure
     
     def remove_market_pair(self, market_pair: str):
-        """Remove a market pair from monitoring."""
-        '''Make sure proccess is atomic to avoid concurrency handling issues - use deep copy if needed since proccess is rare'''
-        if market_pair in self.market_pairs:
-            del self.market_pairs[market_pair]
-            logger.info(f"Removed market pair: {market_pair}")
+        """
+        Remove a market pair from monitoring (atomic operation).
+        
+        Uses atomic copy-swap pattern to prevent race conditions during concurrent access.
+        
+        Args:
+            market_pair: Market pair identifier to remove
+            
+        Returns:
+            bool: True if pair was found and removed, False if not found
+        """
+        try:
+            # Create atomic copy of current market pairs
+            new_market_pairs = self.market_pairs.copy()
+            
+            # Check if exists and remove from copy (not original state)
+            if market_pair in new_market_pairs:
+                removed_config = new_market_pairs.pop(market_pair)
+                
+                # Atomic swap: replace entire dictionary in one operation
+                self.market_pairs = new_market_pairs
+                
+                logger.info(f"🔗 ARBITRAGE MANAGER: Removed market pair: {market_pair}")
+                logger.info(f"🔗 ARBITRAGE MANAGER: Removed config: Kalshi:{removed_config['kalshi_ticker']}, Poly:{removed_config['polymarket_yes_asset_id']}/{removed_config['polymarket_no_asset_id']}")
+                logger.info(f"🔗 ARBITRAGE MANAGER: Remaining market pairs: {len(self.market_pairs)}")
+                logger.debug(f"🔗 ARBITRAGE MANAGER: Active pairs: {list(self.market_pairs.keys())}")
+                return True
+            else:
+                logger.warning(f"🔗 ARBITRAGE MANAGER: Market pair {market_pair} not found for removal")
+                return False
+                
+        except Exception as e:
+            logger.error(f"🔗 ARBITRAGE MANAGER: Error removing market pair {market_pair}: {e}")
+            # State remains unchanged due to atomic operation failure
+            return False
     
     async def check_arbitrage_for_pair(self, market_pair: str) -> List[ArbitrageAlert]:
         """
@@ -425,15 +474,20 @@ class ArbitrageManager:
         Returns:
             List of all arbitrage alerts found
         """
+        logger.debug(f"🔗 ARBITRAGE MANAGER: Checking arbitrage for {len(self.market_pairs)} pairs: {list(self.market_pairs.keys())}")
+        
         all_alerts = []
         
         for market_pair in self.market_pairs.keys():
             try:
                 alerts = await self.check_arbitrage_for_pair(market_pair)
                 all_alerts.extend(alerts)
+                if alerts:
+                    logger.debug(f"🔗 ARBITRAGE MANAGER: Found {len(alerts)} alerts for pair {market_pair}")
             except Exception as e:
-                logger.error(f"Error checking arbitrage for {market_pair}: {e}")
+                logger.error(f"🔗 ARBITRAGE MANAGER: Error checking arbitrage for pair {market_pair}: {e}")
         
+        logger.debug(f"🔗 ARBITRAGE MANAGER: Total alerts found: {len(all_alerts)}")
         return all_alerts
     
     def get_settings(self) -> Dict[str, Any]:

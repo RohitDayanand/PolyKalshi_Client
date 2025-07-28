@@ -119,6 +119,9 @@ connection_state_manager = ConnectionState()
 # Global subscription lock to prevent concurrent subscription operations across all clients
 subscription_lock = asyncio.Lock()
 
+# Global arbitrage settings lock to prevent concurrent settings operations
+arbitrage_settings_lock = asyncio.Lock()
+
 class GlobalManager:
     """Manages WebSocket connections and ticker update streaming using advanced channel manager"""
     
@@ -758,105 +761,115 @@ async def update_arbitrage_settings(request: ArbitrageSettingsRequest):
     - min_spread_threshold: Float 0.0-1.0 (e.g., 0.03 = 3% minimum spread)
     - min_trade_size: Float >= 0.0 (minimum trade size threshold)
     - source: String identifying the update source
+    
+    Note: This endpoint is protected by a server-wide lock to prevent
+    concurrent arbitrage settings operations from multiple clients.
     """
-    try:
-        # Import global event bus
-        from backend.master_manager.events.event_bus import global_event_bus
-        
-        # Extract only non-None fields for partial updates
-        settings_update = {}
-        if request.min_spread_threshold is not None:
-            settings_update['min_spread_threshold'] = request.min_spread_threshold
-        if request.min_trade_size is not None:
-            settings_update['min_trade_size'] = request.min_trade_size
-        
-        if not settings_update:
-            return ArbitrageSettingsResponse(
-                success=False,
-                message="No settings provided for update",
-                errors=["Request must include at least one setting to update"]
-            )
-        
-        # Generate unique correlation ID for this request
-        correlation_id = str(uuid.uuid4())
-        logger.info(f"🎯 Arbitrage settings update request {correlation_id} from {request.source}: {settings_update}")
-        
-        # Create future to await the response
-        response_future = asyncio.Future()
-        
-        # Response handler for success events
-        async def handle_success(event_data: Dict[str, Any]):
-            if event_data.get('correlation_id') == correlation_id:
-                logger.info(f"✅ Received success response for {correlation_id}")
-                response_future.set_result(('success', event_data))
-                
-        # Response handler for error events
-        async def handle_error(event_data: Dict[str, Any]):
-            if event_data.get('correlation_id') == correlation_id:
-                logger.info(f"❌ Received error response for {correlation_id}")
-                response_future.set_result(('error', event_data))
-        
-        # Subscribe to response events
-        global_event_bus.subscribe('arbitrage.settings_updated', handle_success)
-        global_event_bus.subscribe('arbitrage.settings_error', handle_error)
+    # Acquire global arbitrage settings lock to serialize all settings requests
+    async with arbitrage_settings_lock:
+        logger.info(f"🔒 Acquired arbitrage settings lock for request from {request.source}")
         
         try:
-            # Publish request with correlation ID
-            await global_event_bus.publish('arbitrage.settings_changed', {
-                'settings': settings_update,
-                'source': request.source or 'api',
-                'correlation_id': correlation_id,
-                'timestamp': datetime.now().isoformat()
-            })
+            # Import global event bus
+            from backend.master_manager.events.event_bus import global_event_bus
             
-            logger.info(f"📤 Published settings change event with correlation ID: {correlation_id}")
+            # Extract only non-None fields for partial updates
+            settings_update = {}
+            if request.min_spread_threshold is not None:
+                settings_update['min_spread_threshold'] = request.min_spread_threshold
+            if request.min_trade_size is not None:
+                settings_update['min_trade_size'] = request.min_trade_size
             
-            # Wait for response with timeout
-            try:
-                result_type, result_data = await asyncio.wait_for(response_future, timeout=10.0)
-                
-                if result_type == 'success':
-                    logger.info(f"🎉 Settings update {correlation_id} successful")
-                    return ArbitrageSettingsResponse(
-                        success=True,
-                        message="Settings updated successfully by ArbitrageManager",
-                        old_settings=result_data.get('old_settings'),
-                        new_settings=result_data.get('new_settings'),
-                        changed_fields=result_data.get('changed_fields')
-                    )
-                else:
-                    # ArbitrageManager rejected the settings
-                    logger.warning(f"⚠️ Settings update {correlation_id} rejected: {result_data.get('errors')}")
-                    return ArbitrageSettingsResponse(
-                        success=False,
-                        message="Settings update rejected by ArbitrageManager",
-                        errors=result_data.get('errors', ['Unknown rejection reason'])
-                    )
-                    
-            except asyncio.TimeoutError:
-                logger.error(f"⏰ Settings update {correlation_id} timed out")
+            if not settings_update:
                 return ArbitrageSettingsResponse(
                     success=False,
-                    message="Settings update request timed out",
-                    errors=["ArbitrageManager did not respond within 10 seconds - may be offline or busy"]
+                    message="No settings provided for update",
+                    errors=["Request must include at least one setting to update"]
                 )
-                
-        finally:
-            # Always cleanup subscriptions to prevent memory leaks
-            try:
-                global_event_bus.unsubscribe('arbitrage.settings_updated', handle_success)
-                global_event_bus.unsubscribe('arbitrage.settings_error', handle_error)
-                logger.debug(f"🧹 Cleaned up event subscriptions for {correlation_id}")
-            except Exception as cleanup_error:
-                logger.warning(f"Warning: Failed to cleanup event subscriptions: {cleanup_error}")
             
-    except Exception as e:
-        logger.error(f"❌ Unexpected error in settings update endpoint: {e}")
-        return ArbitrageSettingsResponse(
-            success=False,
-            message=f"Internal server error: {str(e)}",
-            errors=[f"Unexpected error: {str(e)}"]
-        )
+            # Generate unique correlation ID for this request
+            correlation_id = str(uuid.uuid4())
+            logger.info(f"🎯 Arbitrage settings update request {correlation_id} from {request.source}: {settings_update}")
+            
+            # Create future to await the response
+            response_future = asyncio.Future()
+            
+            # Response handler for success events
+            async def handle_success(event_data: Dict[str, Any]):
+                if event_data.get('correlation_id') == correlation_id:
+                    logger.info(f"✅ Received success response for {correlation_id}")
+                    response_future.set_result(('success', event_data))
+                    
+            # Response handler for error events
+            async def handle_error(event_data: Dict[str, Any]):
+                if event_data.get('correlation_id') == correlation_id:
+                    logger.info(f"❌ Received error response for {correlation_id}")
+                    response_future.set_result(('error', event_data))
+            
+            # Subscribe to response events
+            global_event_bus.subscribe('arbitrage.settings_updated', handle_success)
+            global_event_bus.subscribe('arbitrage.settings_error', handle_error)
+            
+            try:
+                # Publish request with correlation ID
+                await global_event_bus.publish('arbitrage.settings_changed', {
+                    'settings': settings_update,
+                    'source': request.source or 'api',
+                    'correlation_id': correlation_id,
+                    'timestamp': datetime.now().isoformat()
+                })
+                
+                logger.info(f"📤 Published settings change event with correlation ID: {correlation_id}")
+                
+                # Wait for response with timeout
+                try:
+                    result_type, result_data = await asyncio.wait_for(response_future, timeout=10.0)
+                    
+                    if result_type == 'success':
+                        logger.info(f"🎉 Settings update {correlation_id} successful")
+                        return ArbitrageSettingsResponse(
+                            success=True,
+                            message="Settings updated successfully by ArbitrageManager",
+                            old_settings=result_data.get('old_settings'),
+                            new_settings=result_data.get('new_settings'),
+                            changed_fields=result_data.get('changed_fields')
+                        )
+                    else:
+                        # ArbitrageManager rejected the settings
+                        logger.warning(f"⚠️ Settings update {correlation_id} rejected: {result_data.get('errors')}")
+                        return ArbitrageSettingsResponse(
+                            success=False,
+                            message="Settings update rejected by ArbitrageManager",
+                            errors=result_data.get('errors', ['Unknown rejection reason'])
+                        )
+                        
+                except asyncio.TimeoutError:
+                    logger.error(f"⏰ Settings update {correlation_id} timed out")
+                    return ArbitrageSettingsResponse(
+                        success=False,
+                        message="Settings update request timed out",
+                        errors=["ArbitrageManager did not respond within 10 seconds - may be offline or busy"]
+                    )
+                    
+            finally:
+                # Always cleanup subscriptions to prevent memory leaks
+                try:
+                    global_event_bus.unsubscribe('arbitrage.settings_updated', handle_success)
+                    global_event_bus.unsubscribe('arbitrage.settings_error', handle_error)
+                    logger.debug(f"🧹 Cleaned up event subscriptions for {correlation_id}")
+                except Exception as cleanup_error:
+                    logger.warning(f"Warning: Failed to cleanup event subscriptions: {cleanup_error}")
+                
+        except Exception as e:
+            logger.error(f"❌ Unexpected error in settings update endpoint: {e}")
+            return ArbitrageSettingsResponse(
+                success=False,
+                message=f"Internal server error: {str(e)}",
+                errors=[f"Unexpected error: {str(e)}"]
+            )
+        
+        finally:
+            logger.info(f"🔓 Released arbitrage settings lock for request from {request.source}")
 
 @app.get("/api/arbitrage/settings")
 async def get_arbitrage_settings():
