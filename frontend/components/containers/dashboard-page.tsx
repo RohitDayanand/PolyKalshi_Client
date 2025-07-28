@@ -6,9 +6,26 @@ import { MarketList } from "@/components/containers/market-list"
 import { VisualizationPanel } from "@/components/containers/visualization-panel"
 import { SubscribedMarkets } from "@/components/containers/subscribed-markets"
 import { ArbitrageAlerts, ArbitrageParameters } from "@/components/arbitrage"
+import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable"
 
 export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState("polymarket")
+  
+  // Panel layout state with localStorage persistence
+  const [panelSizes, setPanelSizes] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('arbitrage-panel-sizes')
+      return saved ? JSON.parse(saved) : [75, 25] // Default: 75% alerts, 25% parameters
+    }
+    return [75, 25]
+  })
+
+  const handlePanelResize = (sizes: number[]) => {
+    setPanelSizes(sizes)
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('arbitrage-panel-sizes', JSON.stringify(sizes))
+    }
+  }
 
   return (
     <div className="flex flex-col min-h-screen">
@@ -25,13 +42,34 @@ export default function DashboardPage() {
 
         {/* Arbitrage Dashboard Section */}
         <div className="mb-8">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2">
-              <ArbitrageAlerts />
-            </div>
-            <div className="lg:col-span-1">
-              <ArbitrageParameters />
-            </div>
+          <div className="h-[600px] hidden lg:block">
+            <ResizablePanelGroup 
+              direction="horizontal" 
+              onLayout={handlePanelResize}
+              className="rounded-lg border"
+            >
+              <ResizablePanel 
+                defaultSize={panelSizes[0]} 
+                minSize={20}
+                className="p-2"
+              >
+                <ArbitrageAlerts className="h-full" />
+              </ResizablePanel>
+              <ResizableHandle withHandle />
+              <ResizablePanel 
+                defaultSize={panelSizes[1]} 
+                minSize={20}
+                className="p-2"
+              >
+                <ArbitrageParameters className="h-full" />
+              </ResizablePanel>
+            </ResizablePanelGroup>
+          </div>
+          
+          {/* Mobile fallback - stack vertically */}
+          <div className="lg:hidden space-y-6">
+            <ArbitrageAlerts />
+            <ArbitrageParameters />
           </div>
         </div>
         
