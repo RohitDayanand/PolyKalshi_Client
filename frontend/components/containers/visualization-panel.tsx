@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect } from "react"
 import { useAppSelector } from "@/lib/store/hooks"
 import { selectSubscriptions } from "@/lib/store/apiSubscriptionSlice"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -37,6 +37,18 @@ export function VisualizationPanel() {
   const [market1, setMarket1] = useState<Market | null>(null)
   const [market2, setMarket2] = useState<Market | null>(null)
   
+  // Clear selected markets if they're no longer in subscribed markets
+  useEffect(() => {
+    if (market1 && !subscribedMarkets.find(m => m.id === market1.id)) {
+      setMarket1(null)
+      setMarket1Data({ yes: [], no: [] })
+    }
+    if (market2 && !subscribedMarkets.find(m => m.id === market2.id)) {
+      setMarket2(null)
+      setMarket2Data({ yes: [], no: [] })
+    }
+  }, [subscribedMarkets, market1, market2])
+  
   // Chart type selections for each market
   const [market1ChartType, setMarket1ChartType] = useState("price")
   const [market2ChartType, setMarket2ChartType] = useState("price")
@@ -65,19 +77,6 @@ export function VisualizationPanel() {
       <CardHeader className="pb-4">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <CardTitle className="text-xl">Market Pair Visualization</CardTitle>
-          <div className="flex items-center gap-2">
-            <Select value={timeframe} onValueChange={setTimeframe}>
-              <SelectTrigger className="w-[120px]">
-                <SelectValue placeholder="Timeframe" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="1h">1 Hour</SelectItem>
-                <SelectItem value="24h">24 Hours</SelectItem>
-                <SelectItem value="7d">7 Days</SelectItem>
-                <SelectItem value="30d">30 Days</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-8 px-6">        {/* Top Row: Two Market Charts Side by Side */}
@@ -88,16 +87,6 @@ export function VisualizationPanel() {
               <div className="flex items-center justify-between gap-2">
                 <CardTitle className="text-base">Market #1</CardTitle>
                 <div className="flex items-center gap-2">
-                  <Select value={market1ChartType} onValueChange={setMarket1ChartType}>
-                    <SelectTrigger className="w-[100px] h-8">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="price">Price</SelectItem>
-                      <SelectItem value="orderbook">Orderbook</SelectItem>
-                      <SelectItem value="volume">Volume</SelectItem>
-                    </SelectContent>
-                  </Select>
                 </div>
               </div>
               <Select value={market1?.id || ""} onValueChange={(value) => {
@@ -146,16 +135,6 @@ export function VisualizationPanel() {
               <div className="flex items-center justify-between gap-2">
                 <CardTitle className="text-base">Market #2</CardTitle>
                 <div className="flex items-center gap-2">
-                  <Select value={market2ChartType} onValueChange={setMarket2ChartType}>
-                    <SelectTrigger className="w-[100px] h-8">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="price">Price</SelectItem>
-                      <SelectItem value="orderbook">Orderbook</SelectItem>
-                      <SelectItem value="volume">Volume</SelectItem>
-                    </SelectContent>
-                  </Select>
                 </div>
               </div>
               <Select value={market2?.id || ""} onValueChange={(value) => {

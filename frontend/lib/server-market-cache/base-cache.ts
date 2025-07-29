@@ -65,6 +65,14 @@ export abstract class BaseServerMarketCache {
   }
 
   /**
+   * Remove selected token by market ID
+   */
+  removeSelectedToken(marketId: string): void {
+    console.log('🗑️ Removing selected token for market:', marketId)
+    this.selectedTokens.delete(marketId)
+  }
+
+  /**
    * Search cached markets
    */
   searchMarkets(query: string, maxResults: number = 50): CachedMarket[] {

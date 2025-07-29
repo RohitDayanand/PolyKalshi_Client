@@ -76,37 +76,34 @@ export const OVERLAY_REGISTRY: OverlayMetadata[] = [
     keywords: ['bb', 'bands', 'volatility', 'bollinger', 'envelope', 'no', 'bear'],
     compatibleWith: ['NO'],
   },
-
-  // RSI - YES specific
-  {
-    name: 'yes_rsi',
-    displayName: 'YES RSI',
-    description: 'Relative Strength Index momentum oscillator for YES markets',
-    category: 'Technical Indicators',
-    keywords: ['rsi', 'momentum', 'oscillator', 'strength', 'relative', 'yes', 'bull'],
-    compatibleWith: ['YES'],
-    requiresTimeframe: ['1W', '1M', '1Y'], // RSI needs longer periods
-  },
-  // RSI - NO specific
-  {
-    name: 'no_rsi',
-    displayName: 'NO RSI',
-    description: 'Relative Strength Index momentum oscillator for NO markets',
-    category: 'Technical Indicators',
-    keywords: ['rsi', 'momentum', 'oscillator', 'strength', 'relative', 'no', 'bear'],
-    compatibleWith: ['NO'],
-    requiresTimeframe: ['1W', '1M', '1Y'], // RSI needs longer periods
-  },
-  // RSI - Universal
-  {
-    name: 'rsi',
-    displayName: 'Universal RSI',
-    description: 'Relative Strength Index momentum oscillator for all markets',
-    category: 'Technical Indicators',
-    keywords: ['rsi', 'momentum', 'oscillator', 'strength', 'relative', 'universal'],
-    compatibleWith: ['YES', 'NO'],
-    requiresTimeframe: ['1W', '1M', '1Y'], // RSI needs longer periods
-  },
+  // RSI overlays have been commented out to avoid compilation errors.
+  // {
+  //   name: 'yes_rsi',
+  //   displayName: 'YES RSI',
+  //   description: 'Relative Strength Index momentum oscillator for YES markets',
+  //   category: 'Technical Indicators',
+  //   keywords: ['rsi', 'momentum', 'oscillator', 'strength', 'relative', 'yes', 'bull'],
+  //   compatibleWith: ['YES'],
+  //   requiresTimeframe: ['1W', '1M', '1Y'], // RSI needs longer periods
+  // },
+  // {
+  //   name: 'no_rsi',
+  //   displayName: 'NO RSI',
+  //   description: 'Relative Strength Index momentum oscillator for NO markets',
+  //   category: 'Technical Indicators',
+  //   keywords: ['rsi', 'momentum', 'oscillator', 'strength', 'relative', 'no', 'bear'],
+  //   compatibleWith: ['NO'],
+  //   requiresTimeframe: ['1W', '1M', '1Y'], // RSI needs longer periods
+  // },
+  // {
+  //   name: 'rsi',
+  //   displayName: 'Universal RSI',
+  //   description: 'Relative Strength Index momentum oscillator for all markets',
+  //   category: 'Technical Indicators',
+  //   keywords: ['rsi', 'momentum', 'oscillator', 'strength', 'relative', 'universal'],
+  //   compatibleWith: ['YES', 'NO'],
+  //   requiresTimeframe: ['1W', '1M', '1Y'], // RSI needs longer periods
+  // },
 
   // CANDLESTICK CHARTS - YES specific
   {
@@ -129,12 +126,20 @@ export const OVERLAY_REGISTRY: OverlayMetadata[] = [
 
   // VOLUME PROFILE - YES specific
   {
-    name: 'universal_volume_profile',
+    name: 'yes_volume_profile',
     displayName: 'Market Volume Profile',
     description: 'Trading volume at price levels for binary markets',
     category: 'Technical Indicators',
     keywords: ['volume', 'profile', 'poc', 'vwap', 'distribution', 'yes', 'bull'],
-    compatibleWith: ['YES', 'NO'],
+    compatibleWith: ['YES'],
+  },
+  {
+    name: 'no_volume_profile',
+    displayName: 'Market Volume Profile',
+    description: 'Trading volume at price levels for binary markets',
+    category: 'Technical Indicators',
+    keywords: ['volume', 'profile', 'poc', 'vwap', 'distribution', 'yes', 'bull'],
+    compatibleWith: ['NO'],
   },
   // VOLUME PROFILE - NO specific
 

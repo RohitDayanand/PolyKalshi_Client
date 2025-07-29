@@ -75,6 +75,21 @@ export function SubscribedMarkets() {
         market 
       })).unwrap()
       
+      // Also remove from marketSearchService cache and notify visualization panel
+      try {
+        const { marketSearchService } = await import('@/lib/search-service')
+        await marketSearchService.removeSelectedToken(marketId)
+        
+        // Emit custom event to notify visualization panel using marketSearchService
+        window.dispatchEvent(new CustomEvent('marketRemoved', { 
+          detail: { marketId, platform: subscription.platform } 
+        }))
+        
+        console.log('🔄 Removed from marketSearchService cache and notified visualization panel')
+      } catch (cacheError) {
+        console.warn('Error removing from marketSearchService cache:', cacheError)
+      }
+      
       console.log(`✅ Unsubscribed from market using subscribe endpoint: ${marketId}`)
     } catch (error) {
       console.error('Error unsubscribing from market:', error)

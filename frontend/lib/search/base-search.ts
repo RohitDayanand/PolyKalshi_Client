@@ -156,6 +156,14 @@ export abstract class BaseSearchService {
   }
 
   /**
+   * Remove selected token by market ID
+   */
+  async removeSelectedToken(marketId: string): Promise<void> {
+    const cache = await this.getMarketCache()
+    cache.removeSelectedToken(marketId)
+  }
+
+  /**
    * Get cache statistics
    */
   async getCacheStats() {

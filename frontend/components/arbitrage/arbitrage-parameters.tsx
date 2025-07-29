@@ -170,7 +170,7 @@ export function ArbitrageParameters({ className, onParametersChange }: Arbitrage
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <Label htmlFor="spread-threshold" className="text-sm font-medium">
-                  Minimum Spread Threshold
+                  Minimum Spread Threshold in cents (Note that spread is already net of expected kalshi fees)
                 </Label>
                 <span className="text-sm text-muted-foreground">
                   {formatPercentage(parameters.min_spread_threshold)}
@@ -178,9 +178,9 @@ export function ArbitrageParameters({ className, onParametersChange }: Arbitrage
               </div>
               <Slider
                 id="spread-threshold"
-                min={5} // 0.5%
-                max={100} // 10%
-                step={5}
+                min={1} // 1 cent spread
+                max={25} // 25 cent spread - note that 25 cent spread indicates the markets are likely not a pair, or there is stale quotes happening at some point of the threshold 
+                step={1}
                 value={[parameters.min_spread_threshold * 100]}
                 onValueChange={handleSpreadThresholdChange}
                 className="w-full"

@@ -1,5 +1,6 @@
 import { DataPoint, ChannelConfig, MarketSide } from '../types'
 import { PlatformParser, ApiResponse } from './types'
+import { calculatePolymarketTimeRange } from '../utils/timestampRounding'
 
 export class PolymarketParser implements PlatformParser {
   readonly platform = 'polymarket' as const
@@ -44,32 +45,16 @@ export class PolymarketParser implements PlatformParser {
 
   calculateTimeRange(range: string, type: 'initial' | 'update', since?: number): { startTs: number, endTs: number } {
     const nowTs = Math.floor(Date.now() / 1000)
-    const endTs = nowTs
-    
-    let startTs: number
     
     if (type === 'update' && since) {
-      startTs = Math.floor(since / 1000)
-    } else {
-      switch (range) {
-        case '1H':
-          startTs = nowTs - (60 * 60 * 6)
-          break
-        case '1W':
-          startTs = nowTs - (7 * 24 * 60 * 60 * 2)
-          break
-        case '1M':
-          startTs = nowTs - (30 * 24 * 60 * 60 * 6)
-          break
-        case '1Y':
-          startTs = nowTs - (365 * 24 * 60 * 60)
-          break
-        default:
-          console.warn(`Unknown range ${range}, defaulting to 1 hour`)
-          startTs = nowTs - (60 * 60)
+      // For updates, use the provided since timestamp as start and current as end
+      return {
+        startTs: Math.floor(since / 1000),
+        endTs: nowTs
       }
+    } else {
+      // For initial requests, use rounded timestamps to prevent append errors
+      return calculatePolymarketTimeRange(range, nowTs)
     }
-    
-    return { startTs, endTs }
   }
 }

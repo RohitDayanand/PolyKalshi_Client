@@ -66,7 +66,9 @@ export function useChartInstance({
   /* --------------------------------------------------------------- */
   useEffect(() => {
     if (platform && marketId) {
-      // Platform and market setup
+      console.log(`📊 useChartInstance received market data - chartId: ${chartId}, platform: ${platform}, marketId: ${marketId}`)
+    } else {
+      console.log(`📊 useChartInstance missing market data - chartId: ${chartId}, platform: ${platform}, marketId: ${marketId}`)
     }
   }, [platform, marketId, chartId])
 
@@ -153,18 +155,49 @@ export function useChartInstance({
         window.removeEventListener('resize', handleResizeRef.current)
         handleResizeRef.current = null
       }
+      
+      // Clean up both local instance and ref
       if (chartInstance) {
-        chartInstance.remove()
-        //clearInstance()                       // 🧹 clear redux state
+        try {
+          chartInstance.remove()
+        } catch (error) {
+          console.warn('Error disposing chart instance:', error)
+        }
       }
+      if (chartInstanceRef.current) {
+        try {
+          chartInstanceRef.current.remove()
+        } catch (error) {
+          console.warn('Error disposing chart instance ref:', error)
+        }
+      }
+      
       // Clear refs
       chartInstanceRef.current = null
       chartDomRef.current = null
+      
+      // Clear series refs
+      seriesRef.current = { yes: null, no: null }
+      priceSeriesRef.current = []
+      overlaySeriesRef.current = []
     }
 
     /* ----------------- createChartInstance ---------------------- */
     function createChartInstance() {
       if (!chartContainerRef.current) return
+
+      console.log(`🏗️ Creating chart instance for chartId: ${chartId}, platform: ${platform}, marketId: ${marketId}`)
+
+      // Clean up any existing chart instance before creating new one
+      if (chartInstanceRef.current) {
+        console.log(`🧹 Disposing existing chart instance for chartId: ${chartId}`)
+        try {
+          chartInstanceRef.current.remove()
+        } catch (error) {
+          console.warn('Error disposing existing chart instance:', error)
+        }
+        chartInstanceRef.current = null
+      }
 
       const container   = chartContainerRef.current
       const chartOpts   = getChartOptions(container.clientWidth, containerHeight, selectedRange)
@@ -198,7 +231,7 @@ export function useChartInstance({
       /* update local reference */
 
     }
-  }, [isVisible]) // runs when chart visibility changes
+  }, [isVisible, platform, marketId, chartId]) // runs when chart visibility changes or market changes
 
   /* --------------------------------------------------------------- */
   /*  view-change handler (now handled by useOverlayManager)         */

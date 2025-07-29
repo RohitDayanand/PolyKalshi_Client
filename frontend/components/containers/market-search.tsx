@@ -3,12 +3,14 @@
 import type React from "react"
 
 import { useState } from "react"
-import { Search, Loader2, Check } from "lucide-react"
+import { Search, Loader2, Check, X } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
+import { SearchProgress } from "@/components/ui/search-progress"
 import { useMarketSubscription } from "@/lib/store/marketSubscriptionHooks"
+import { useStreamingSearch } from "@/hooks/useStreamingSearch"
 import { marketSearchService } from "@/lib/search-service"
 import type { Market } from "@/types/market"
 
@@ -21,46 +23,18 @@ export function MarketSearch({ platform }: MarketSearchProps) {
   const [selectedMarkets, setSelectedMarkets] = useState<Set<string>>(new Set())
   const { subscribeToMarket } = useMarketSubscription()
   
-  // Local search state (copied from market-list.tsx)
-  const [searchResults, setSearchResults] = useState<{
-    polymarket: Market[]
-    kalshi: Market[]  
-    loading: boolean
-  }>({
-    polymarket: [],
-    kalshi: [],
-    loading: false
-  })
-  
-  // Local search implementation (copied from market-list.tsx)
-  const searchMarkets = async (platform: "polymarket" | "kalshi", query: string) => {
-    setSearchResults(prev => ({ ...prev, loading: true }))
-    
-    try {
-      const response = await fetch(`/api/search?platform=${platform}&query=${encodeURIComponent(query)}`)
-      const data = await response.json()
-      
-      if (data.success) {
-        setSearchResults(prev => ({
-          ...prev,
-          [platform]: data.data,
-          loading: false,
-        }))
-      } else {
-        console.error('Search failed:', data.error)
-        setSearchResults(prev => ({ ...prev, loading: false }))
-      }
-    } catch (error) {
-      console.error('Search API error:', error)
-      setSearchResults(prev => ({ ...prev, loading: false }))
-    }
-  }
+  // Use streaming search hook
+  const { search, cancelSearch, isLoading, progress, results, error } = useStreamingSearch()
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault()
     if (query.trim()) {
-      await searchMarkets(platform, query.trim())
+      await search(platform, query.trim())
     }
+  }
+
+  const handleCancelSearch = () => {
+    cancelSearch()
   }
 
   const handleMarketSelect = async (market: Market) => {
@@ -97,8 +71,8 @@ export function MarketSearch({ platform }: MarketSearchProps) {
     }
   }
 
-  const isLoading = searchResults.loading
-  const markets = platform === 'polymarket' ? searchResults.polymarket : searchResults.kalshi
+  // Use results from streaming search
+  const markets = results || []
 
   return (
     <div className="space-y-4">
@@ -108,26 +82,56 @@ export function MarketSearch({ platform }: MarketSearchProps) {
           placeholder={`Search ${platform} markets...`}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          className="pr-10"
+          className={isLoading ? "pr-20" : "pr-10"}
           disabled={isLoading}
         />
-        <Button 
-          type="submit" 
-          size="icon" 
-          variant="ghost" 
-          className="absolute right-0 top-0 h-full"
-          disabled={isLoading || !query.trim()}
-        >
-          {isLoading ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Search className="h-4 w-4" />
+        <div className="absolute right-0 top-0 h-full flex items-center">
+          {isLoading && (
+            <Button 
+              type="button" 
+              size="icon" 
+              variant="ghost" 
+              onClick={handleCancelSearch}
+              className="h-full"
+            >
+              <X className="h-4 w-4" />
+              <span className="sr-only">Cancel search</span>
+            </Button>
           )}
-          <span className="sr-only">
-            {isLoading ? 'Searching...' : 'Search'}
-          </span>
-        </Button>
+          <Button 
+            type="submit" 
+            size="icon" 
+            variant="ghost" 
+            className="h-full"
+            disabled={isLoading || !query.trim()}
+          >
+            {isLoading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Search className="h-4 w-4" />
+            )}
+            <span className="sr-only">
+              {isLoading ? 'Searching...' : 'Search'}
+            </span>
+          </Button>
+        </div>
       </form>
+      
+      {/* Progress Indicator */}
+      {isLoading && progress && (
+        <SearchProgress 
+          stage={progress.stage}
+          message={progress.message}
+          progress={progress.progress}
+        />
+      )}
+
+      {/* Error Display */}
+      {error && (
+        <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg">
+          <p className="text-sm text-destructive">{error}</p>
+        </div>
+      )}
       
       {/* Search Results */}
       {markets.length > 0 && (

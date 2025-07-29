@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import React, { useState } from "react"
 import { useMarketSubscription } from "@/lib/store/marketSubscriptionHooks"
 import { useAppDispatch } from "@/lib/store/hooks"
 import { startLoading, stopLoading } from "@/lib/store/loadingBarSlice"
@@ -18,9 +18,10 @@ import type { Market } from "@/types/market"
 
 interface MarketListProps {
   platform: "polymarket" | "kalshi"
+  onSearchLoadingChange?: (platform: "polymarket" | "kalshi", isLoading: boolean) => void
 }
 
-export function MarketList({ platform }: MarketListProps) {
+export function MarketList({ platform, onSearchLoadingChange }: MarketListProps) {
   const [query, setQuery] = useState("")
   const [selectedMarkets, setSelectedMarkets] = useState<Set<string>>(new Set())
   const { subscribeToMarket, subscriptions } = useMarketSubscription()
@@ -30,46 +31,23 @@ export function MarketList({ platform }: MarketListProps) {
   // Hook to listen for first data emissions
   useFirstDataEmission()
   
-  // Keep existing search functionality - only replace subscription logic
-  const [searchResults, setSearchResults] = useState<{
-    polymarket: Market[]
-    kalshi: Market[]  
-    loading: boolean
-  }>({
-    polymarket: [],
-    kalshi: [],
-    loading: false
-  })
+  // Use streaming search hook
+  const { search, cancelSearch, isLoading, progress, results, error } = useStreamingSearch()
   
-  // Keep existing search implementation
-  const searchMarkets = async (platform: "polymarket" | "kalshi", query: string) => {
-    setSearchResults(prev => ({ ...prev, loading: true }))
-    
-    try {
-      const response = await fetch(`/api/search?platform=${platform}&query=${encodeURIComponent(query)}`)
-      const data = await response.json()
-      
-      if (data.success) {
-        setSearchResults(prev => ({
-          ...prev,
-          [platform]: data.data,
-          loading: false,
-        }))
-      } else {
-        console.error('Search failed:', data.error)
-        setSearchResults(prev => ({ ...prev, loading: false }))
-      }
-    } catch (error) {
-      console.error('Search API error:', error)
-      setSearchResults(prev => ({ ...prev, loading: false }))
-    }
-  }
+  // Notify parent of loading state changes
+  React.useEffect(() => {
+    onSearchLoadingChange?.(platform, isLoading)
+  }, [isLoading, platform, onSearchLoadingChange])
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault()
     if (query.trim()) {
-      await searchMarkets(platform, query.trim())
+      await search(platform, query.trim())
     }
+  }
+
+  const handleCancelSearch = () => {
+    cancelSearch()
   }
 
   /*
@@ -116,8 +94,8 @@ export function MarketList({ platform }: MarketListProps) {
     }
   }
 
-  const results = searchResults[platform] || []
-  const isLoading = searchResults.loading
+  // Use results from streaming search
+  const searchResultsToShow = results || []
 
   return (
     <Card>
@@ -132,54 +110,78 @@ export function MarketList({ platform }: MarketListProps) {
             placeholder={`Search ${platform} markets...`}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            className="pr-10"
+            className={isLoading ? "pr-20" : "pr-10"}
             disabled={isLoading}
           />
-          <Button 
-            type="submit" 
-            size="icon" 
-            variant="ghost" 
-            className="absolute right-0 top-0 h-full"
-            disabled={isLoading || !query.trim()}
-          >
-            {isLoading ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Search className="h-4 w-4" />
+          <div className="absolute right-0 top-0 h-full flex items-center">
+            {isLoading && (
+              <Button 
+                type="button" 
+                size="icon" 
+                variant="ghost" 
+                onClick={handleCancelSearch}
+                className="h-full"
+              >
+                <X className="h-4 w-4" />
+                <span className="sr-only">Cancel search</span>
+              </Button>
             )}
-            <span className="sr-only">
-              {isLoading ? 'Searching...' : 'Search'}
-            </span>
-          </Button>
+            <Button 
+              type="submit" 
+              size="icon" 
+              variant="ghost" 
+              className="h-full"
+              disabled={isLoading || !query.trim()}
+            >
+              {isLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Search className="h-4 w-4" />
+              )}
+              <span className="sr-only">
+                {isLoading ? 'Searching...' : 'Search'}
+              </span>
+            </Button>
+          </div>
         </form>
 
+        {/* Progress Indicator */}
+        {isLoading && progress && (
+          <SearchProgress 
+            stage={progress.stage}
+            message={progress.message}
+            progress={progress.progress}
+          />
+        )}
+
+        {/* Error Display */}
+        {error && (
+          <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg">
+            <p className="text-sm text-destructive">{error}</p>
+          </div>
+        )}
+
         {/* Search Results */}
-        {results.length === 0 && !isLoading && query && (
+        {searchResultsToShow.length === 0 && !isLoading && query && !error && (
           <div className="text-center text-muted-foreground py-4">
             No markets found for "{query}". Try a different search term.
           </div>
         )}
         
-        {results.length === 0 && !query && (
+        {searchResultsToShow.length === 0 && !query && !isLoading && (
           <div className="text-center text-muted-foreground py-4">
             Search for markets to add them to your dashboard.
           </div>
         )}
 
-        {isLoading && (
-          <div className="text-center text-muted-foreground py-4">
-            Searching {platform} markets...
-          </div>
-        )}
-
-        {results.length > 0 && (
+        {searchResultsToShow.length > 0 && (
           <div className="space-y-2">
             <p className="text-sm text-muted-foreground">
-              Found {results.length} {platform} markets
+              Found {searchResultsToShow.length} {platform} markets
             </p>
             <ScrollArea className="h-[400px]">
               <div className="space-y-2 p-2">
-                {results.map((market) => (
+                {searchResultsToShow.map((market) => (
                   <div key={market.id} className="flex items-start justify-between p-3 rounded-md border hover:bg-accent transition-colors">
                     <div className="flex-1 min-w-0 space-y-1">
                       <div className="flex items-center gap-2">
