@@ -53,7 +53,9 @@ const OVERLAY_CLASS_MAP: Record<string, ConcreteSeriesClass> = {
   'yes_rsi': MovingAverage,               // TODO: Replace with RSI when implemented
   'no_rsi': MovingAverage,                // TODO: Replace with RSI when implemented
   'rsi': MovingAverage,                   // Universal
-  'universal_volume_profile': Volume,    // TODO: Replace with VolumeProfile when implemented
+  'yes_volume_profile': Volume,          // YES volume overlay
+  'no_volume_profile': Volume,           // NO volume overlay
+  'universal_volume_profile': Volume,    // Universal volume overlay
   'yes_support_resistance': MovingAverage, // TODO: Replace with SupportResistance when implemented
   'no_support_resistance': MovingAverage,  // TODO: Replace with SupportResistance when implemented
   'support_resistance': MovingAverage,     // Universal
@@ -79,7 +81,7 @@ export function useOverlayManager({ chartInstanceRef, chartId, marketId, platfor
   // TRACE: Log useOverlayManager reception - now showing what it receives
   
   // Redux state hooks - now using chartId for isolated state
-  const { overlays, addOverlay } = useOverlayState(chartId)
+  const { overlays, addOverlay, resetOverlays } = useOverlayState(chartId)
   const { selectedView } = useChartViewState(chartId)
   const { selectedRange } = useChartRangeState(chartId)
   const { getSubscriptionId } = useMarketSubscriptionState(chartId) // Get subscription IDs
@@ -114,8 +116,29 @@ export function useOverlayManager({ chartInstanceRef, chartId, marketId, platfor
   const previousStateRef = useRef({
     view: selectedView,
     range: selectedRange,
-    overlayKeys: new Set<string>()
+    overlayKeys: new Set<string>(),
+    marketId: marketId
   })
+
+  /**
+   * HELPER: Check if chart instance is valid and not disposed
+   */
+  const isChartInstanceValid = useCallback((chartInstance: any): boolean => {
+    if (!chartInstance) return false
+    
+    try {
+      // Try to access a basic property to check if chart is disposed
+      chartInstance.options()
+      return true
+    } catch (error) {
+      if (error.message?.includes('disposed') || error.message?.includes('Object is disposed')) {
+        console.warn('Chart instance is disposed:', error.message)
+        return false
+      }
+      // Other errors might not indicate disposal
+      return true
+    }
+  }, [])
 
   /**
    * HELPER: Get overlay class constructor by name
@@ -130,7 +153,7 @@ export function useOverlayManager({ chartInstanceRef, chartId, marketId, platfor
 
   const createOverlayInstance = useCallback((overlayKey: string, overlay: Overlay): SeriesClass | null => {
     const chartInstance = chartInstanceRef.current
-    if (!chartInstance) {
+    if (!chartInstance || !isChartInstanceValid(chartInstance)) {
       return null
     }
 
@@ -178,7 +201,7 @@ export function useOverlayManager({ chartInstanceRef, chartId, marketId, platfor
     } catch (error) {
       return null
     }
-  }, [getOverlayClass, getSubscriptionId])
+  }, [getOverlayClass, getSubscriptionId, isChartInstanceValid])
 
   /**
    * HELPER: Destroy overlay instance and cleanup
@@ -249,6 +272,34 @@ export function useOverlayManager({ chartInstanceRef, chartId, marketId, platfor
       }
     }
   }, [selectedView, selectedRange, overlays, addOverlay])
+
+  /**
+   * EFFECT: Handle market changes (clear overlay state for new market)
+   */
+  useEffect(() => {
+    const previousMarketId = previousStateRef.current.marketId
+    
+    if (previousMarketId && previousMarketId !== marketId) {
+      console.log(`🔄 Market changed from ${previousMarketId} to ${marketId}, clearing overlay state`)
+      
+      // Step 1: Destroy ALL existing overlay instances
+      const currentInstances = Array.from(overlayInstancesRef.current.keys())
+      currentInstances.forEach(overlayKey => {
+        destroyOverlayInstance(overlayKey)
+      })
+      
+      // Step 2: Clear Redux overlay state for this chart
+      resetOverlays()
+      
+      // Update previous state
+      previousStateRef.current.marketId = marketId
+      
+      console.log(`✅ Overlay state cleared for new market: ${marketId}`)
+    } else if (!previousMarketId && marketId) {
+      // First time setting marketId
+      previousStateRef.current.marketId = marketId
+    }
+  }, [marketId, resetOverlays, destroyOverlayInstance])
 
   /**
    * EFFECT: Handle view changes (destroy all, recreate compatible)

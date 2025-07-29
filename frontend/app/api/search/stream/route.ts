@@ -32,22 +32,23 @@ export async function GET(request: NextRequest) {
           progress: 0 
         })
 
-        // Check cache status first
-        const cacheStats = await marketSearchService.getCacheStats()
+        // Check global cache status (both platforms)
+        const { serverMarketCache } = await import('@/lib/server-market-cache')
+        const globalCacheStats = serverMarketCache.getCacheStats()
         
-        if (cacheStats.marketCount === 0) {
+        if (globalCacheStats.marketCount === 0) {
           sendEvent('progress', { 
             stage: 'cache_loading', 
-            message: 'Cache is empty, warming up...', 
+            message: 'Cache is empty, loading markets from all platforms...', 
             progress: 10 
           })
 
-          // Start cache refresh with progress tracking
-          await refreshCacheWithProgress(sendEvent, platform)
+          // Start global cache refresh with progress tracking
+          await refreshGlobalCacheWithProgress(sendEvent)
         } else {
           sendEvent('progress', { 
             stage: 'cache_ready', 
-            message: 'Cache is ready', 
+            message: `Cache is ready (${globalCacheStats.marketCount.toLocaleString()} markets from all platforms)`, 
             progress: 50 
           })
         }
@@ -74,7 +75,7 @@ export async function GET(request: NextRequest) {
           platform,
           query,
           timestamp: new Date().toISOString(),
-          cache: cacheStats
+          cache: globalCacheStats
         })
 
       } catch (error) {
@@ -91,56 +92,45 @@ export async function GET(request: NextRequest) {
 
   return new Response(stream, {
     headers: {
-      'Content-Type': 'text/plain; charset=utf-8',
+      'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
       'Connection': 'keep-alive',
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET',
+      'Access-Control-Allow-Headers': 'Cache-Control'
     }
   })
 }
 
-async function refreshCacheWithProgress(
-  sendEvent: (type: string, data: any) => void, 
-  platform: 'polymarket' | 'kalshi'
+async function refreshGlobalCacheWithProgress(
+  sendEvent: (type: string, data: any) => void
 ) {
   const { serverMarketCache } = await import('@/lib/server-market-cache')
   
-  if (platform === 'polymarket') {
+  sendEvent('progress', { 
+    stage: 'cache_loading', 
+    message: 'Fetching markets from all platforms...', 
+    progress: 20 
+  })
+  
+  // Create progress monitoring
+  let currentStep = 0
+  const progressInterval = setInterval(() => {
+    currentStep++
+    const stepProgress = Math.min(20 + (currentStep * 2), 95) // 2% per step, cap at 95%
+    
     sendEvent('progress', { 
       stage: 'cache_loading', 
-      message: 'Fetching Polymarket markets...', 
-      progress: 20 
+      message: 'Loading markets from all platforms... This usually takes 1-2 minutes. This will be much faster next time', 
+      progress: Math.round(stepProgress) // Round to nearest percent
     })
-    
-    // Get the polymarket cache for more granular progress
-    const polymarketCache = serverMarketCache.getPolymarketCache()
-    
-    // Since we can't easily modify the existing fetch method, we'll simulate progress
-    const refreshPromise = polymarketCache.refreshCache()
-    
-    // Simulate progress updates during cache refresh
-    const progressInterval = setInterval(() => {
-      const currentStats = serverMarketCache.getCacheStats()
-      const estimatedProgress = Math.min(30 + (currentStats.marketCount / 5000) * 20, 45)
-      
-      sendEvent('progress', { 
-        stage: 'cache_loading', 
-        message: `Loading markets: ${currentStats.marketCount} cached...`, 
-        progress: estimatedProgress 
-      })
-    }, 500)
-    
-    await refreshPromise
+  }, 1500) // Update every 1.5 seconds to match slower loading
+  
+  try {
+    // Refresh the global cache (both platforms)
+    await serverMarketCache.refreshCache()
+  } finally {
     clearInterval(progressInterval)
-    
-  } else {
-    sendEvent('progress', { 
-      stage: 'cache_loading', 
-      message: 'Fetching Kalshi markets...', 
-      progress: 20 
-    })
-    
-    const kalshiCache = serverMarketCache.getKalshiCache()
-    await kalshiCache.refreshCache()
   }
   
   sendEvent('progress', { 

@@ -320,8 +320,8 @@ export function AdaptiveChart({
     ? "flex-1 bg-transparent border-0 rounded-lg overflow-hidden"
     : "flex-1 bg-transparent border-0 rounded mt-4"
     
-  // Fixed chart height for embedded mode (independent of containerHeight)
-  const embeddedChartHeight = 300 // Fixed height for the actual chart area
+  // Use the actual containerHeight prop instead of hardcoded value
+  const embeddedChartHeight = containerHeight || 400
 
   return (
     <div className={containerStyles}>
@@ -409,22 +409,15 @@ export function AdaptiveChart({
         </div>
       )}
 
-      {/* Debug info for embedded mode */}
-      {!isFullscreen && (
-        <p className="text-xs text-white mb-2">
-          Check browser console for debugging info
-          {isTransitioning && <span className="text-yellow-400 ml-2">(Transitioning...)</span>}
-          {originalWidthRef.current && <span className="text-[var(--strike-green)] ml-2">Original: {Math.round(originalWidthRef.current)}×{embeddedChartHeight}px (fixed height)</span>}
-          <span className="text-blue-400 ml-2">Container: {containerHeight}px</span>
-        </p>
-      )}
+      {/* REMOVED FOR PRODUCTION: Debug info for embedded mode */}
+      {!isFullscreen}
 
       {/* Chart Container - Adapts based on mode */}
       <div className={chartWrapperStyles}>
         <div 
           className={chartStyles}
           style={{ 
-            height: isFullscreen ? '100%' : `${containerHeight}px`,
+            height: isFullscreen ? '100%' : `${embeddedChartHeight}px`,
             minHeight: isFullscreen ? '500px' : 'auto'
           }}
         >

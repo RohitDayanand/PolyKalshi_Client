@@ -48,22 +48,60 @@ export class MarketSearchService {
    * Store selected token ID when user clicks on a market
    */
   async storeSelectedToken(marketId: string, tokenId: string, outcomeName: string, marketTitle: string): Promise<void> {
-    // Use polymarket service for storage (both use the same cache)
-    return this.polymarketService.storeSelectedToken(marketId, tokenId, outcomeName, marketTitle)
+    // Determine platform from marketId and use appropriate service
+    if (marketId.startsWith('poly_') || marketId.includes('polymarket')) {
+      return this.polymarketService.storeSelectedToken(marketId, tokenId, outcomeName, marketTitle)
+    } else {
+      // Assume Kalshi for non-polymarket IDs
+      return this.kalshiService.storeSelectedToken(marketId, tokenId, outcomeName, marketTitle)
+    }
   }
 
   /**
    * Get all selected tokens
    */
   async getSelectedTokens() {
-    return this.polymarketService.getSelectedTokens()
+    // Get tokens from both services and combine them
+    const [polymarketTokens, kalshiTokens] = await Promise.all([
+      this.polymarketService.getSelectedTokens(),
+      this.kalshiService.getSelectedTokens()
+    ])
+    return [...polymarketTokens, ...kalshiTokens]
+  }
+
+  /**
+   * Remove selected token by market ID
+   */
+  async removeSelectedToken(marketId: string): Promise<void> {
+    // Remove from both services since we don't know which platform the market belongs to
+    await Promise.all([
+      this.polymarketService.removeSelectedToken(marketId),
+      this.kalshiService.removeSelectedToken(marketId)
+    ])
   }
 
   /**
    * Get cache statistics
    */
   async getCacheStats() {
-    return this.polymarketService.getCacheStats()
+    // Get stats from both services and combine them
+    const [polymarketStats, kalshiStats] = await Promise.all([
+      this.polymarketService.getCacheStats(),
+      this.kalshiService.getCacheStats()
+    ])
+    
+    return {
+      marketCount: polymarketStats.marketCount + kalshiStats.marketCount,
+      selectedTokenCount: polymarketStats.selectedTokenCount + kalshiStats.selectedTokenCount,
+      lastUpdate: new Date(Math.max(
+        new Date(polymarketStats.lastUpdate).getTime(),
+        new Date(kalshiStats.lastUpdate).getTime()
+      )).toISOString(),
+      cacheAge: Math.min(polymarketStats.cacheAge, kalshiStats.cacheAge),
+      isStale: polymarketStats.isStale || kalshiStats.isStale,
+      polymarketStats,
+      kalshiStats
+    }
   }
 
   /**
@@ -72,7 +110,23 @@ export class MarketSearchService {
   async getMarket(id: string) {
     console.log('🔍 DEBUG MarketSearchService.getMarket called with:', id, 'type:', typeof id)
     
-    const result = await this.polymarketService.getMarket(id)
+    // Try to get market from appropriate service based on ID
+    let result = null
+    if (id.startsWith('poly_') || id.includes('polymarket')) {
+      result = await this.polymarketService.getMarket(id)
+    } else {
+      result = await this.kalshiService.getMarket(id)
+    }
+    
+    // If not found in expected service, try the other one as fallback
+    if (!result) {
+      if (id.startsWith('poly_') || id.includes('polymarket')) {
+        result = await this.kalshiService.getMarket(id)
+      } else {
+        result = await this.polymarketService.getMarket(id)
+      }
+    }
+    
     console.log('🔍 DEBUG MarketSearchService.getMarket result:', result ? 'Found' : 'Not found')
     return result
   }
@@ -81,7 +135,11 @@ export class MarketSearchService {
    * Clear cache
    */
   async clearCache() {
-    return this.polymarketService.clearCache()
+    // Clear cache from both services
+    await Promise.all([
+      this.polymarketService.clearCache(),
+      this.kalshiService.clearCache()
+    ])
   }
 }
 

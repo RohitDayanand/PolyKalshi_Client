@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useCallback } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { MarketList } from "@/components/containers/market-list"
 import { VisualizationPanel } from "@/components/containers/visualization-panel"
@@ -10,6 +10,19 @@ import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/componen
 
 export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState("polymarket")
+  const [searchLoadingStates, setSearchLoadingStates] = useState({
+    polymarket: false,
+    kalshi: false
+  })
+  
+  const handleSearchLoadingChange = useCallback((platform: "polymarket" | "kalshi", isLoading: boolean) => {
+    setSearchLoadingStates(prev => ({
+      ...prev,
+      [platform]: isLoading
+    }))
+  }, [])
+  
+  const isAnySearchLoading = Object.values(searchLoadingStates).some(loading => loading)
   
   // Panel layout state with localStorage persistence
   const [panelSizes, setPanelSizes] = useState(() => {
@@ -78,14 +91,14 @@ export default function DashboardPage() {
           <div className="space-y-6">
             <Tabs value={activeTab} onValueChange={setActiveTab}>
               <TabsList className="grid grid-cols-2 w-full">
-                <TabsTrigger value="polymarket">Polymarket</TabsTrigger>
-                <TabsTrigger value="kalshi">Kalshi</TabsTrigger>
+                <TabsTrigger value="polymarket" disabled={isAnySearchLoading}>Polymarket</TabsTrigger>
+                <TabsTrigger value="kalshi" disabled={isAnySearchLoading}>Kalshi</TabsTrigger>
               </TabsList>
               <TabsContent value="polymarket" className="space-y-4 mt-4">
-                <MarketList platform="polymarket" />
+                <MarketList platform="polymarket" onSearchLoadingChange={handleSearchLoadingChange} />
               </TabsContent>
               <TabsContent value="kalshi" className="space-y-4 mt-4">
-                <MarketList platform="kalshi" />
+                <MarketList platform="kalshi" onSearchLoadingChange={handleSearchLoadingChange} />
               </TabsContent>
             </Tabs>
             <SubscribedMarkets />

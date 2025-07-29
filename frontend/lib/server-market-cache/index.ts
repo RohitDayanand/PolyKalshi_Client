@@ -136,6 +136,15 @@ export class ServerMarketCache {
   }
 
   /**
+   * Remove selected token by market ID
+   */
+  removeSelectedToken(marketId: string): void {
+    console.log('🗑️ Removing selected token from cache for market:', marketId)
+    this.polymarketCache.removeSelectedToken(marketId)
+    this.kalshiCache.removeSelectedToken(marketId)
+  }
+
+  /**
    * Get market by ID
    */
   getMarket(id: string): CachedMarket | undefined {

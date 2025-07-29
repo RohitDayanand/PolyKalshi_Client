@@ -2,6 +2,7 @@ import { HistogramSeries as LightweightHistogramSeries, ISeriesApi, HistogramDat
 import SeriesClass from './BaseClass'
 import { SeriesClassConstructorOptions, MarketDataUpdate, MarketDataPoint } from '../../../lib/ChartStuff/chart-types'
 import { CHART_THEME } from '@/lib/ChartStuff/chart-config'
+import { parseSubscriptionId } from '../utils/parseSubscriptionId'
 
 /**
  * VOLUME OVERLAY COMPONENT
@@ -25,11 +26,11 @@ const DEFAULT_VOLUME_OPTIONS: Required<VolumeOptions> = {
   baseVolumeMultiplier: 1000, // Base volume multiplier
   volatilityMultiplier: 5000, // Additional volume based on price change
   color: {
-    up: CHART_THEME.colors.accent.green,
-    down: CHART_THEME.colors.accent.red
+    up: '#4a5d4fAA',   // Muted grey-green with 67% opacity (AA = 170/255 ≈ 67%)
+    down: '#5d4a4aAA'  // Muted grey-red with 67% opacity
   },
-  priceScaleVisible: false, // Hidden as requested
-  lastValueVisible: false
+  priceScaleVisible: true, // Show scale to visualize volume values
+  lastValueVisible: true   // Show latest volume value
 }
 
 export class Volume extends SeriesClass {
@@ -59,16 +60,13 @@ export class Volume extends SeriesClass {
       console.log(`✅ SeriesClass - Created ${this.seriesType} volume series with subscription ID: ${this.subscriptionId}`)
       
       // Auto-subscribe to market data if subscription ID exists
-      // Parse subscription ID to extract marketId, side, and timeRange
       if (this.subscriptionId) {
         console.log(`🔗 Volume - Attempting subscription with ID: ${this.subscriptionId}`)
         
-        // Parse subscription ID format: "seriesType&timeRange&marketId"
-        const subscriptionParts = this.subscriptionId.split('&')
-        if (subscriptionParts.length >= 3) {
-          const [seriesTypeStr, timeRange, ...marketIdParts] = subscriptionParts
-          const marketId = marketIdParts.join('&') // Rejoin market ID parts that may contain '&'
-          const side = seriesTypeStr.toLowerCase() as 'yes' | 'no'
+        // Parse subscription ID using utility function
+        const parsed = parseSubscriptionId(this.subscriptionId)
+        if (parsed) {
+          const { marketId, side, timeRange } = parsed
           
           console.log(`📊 Volume - Parsed subscription details:`, {
             subscriptionId: this.subscriptionId,
@@ -107,13 +105,16 @@ export class Volume extends SeriesClass {
         title: `${this.seriesType} Volume`
       })
 
-      // Configure the volume price scale to be hidden
+      // Configure the volume price scale for visibility and positioning
       this.chartInstance.priceScale('volume').applyOptions({
         scaleMargins: {
           top: 0.8, // Volume occupies bottom 20%
           bottom: 0.0,
         },
-        visible: this.options.priceScaleVisible, // Hidden as requested
+        visible: this.options.priceScaleVisible, // Show scale to visualize volume values
+        borderVisible: true, // Show scale border
+        textColor: '#666666', // Darker text for better visibility
+        borderColor: '#333333', // Dark border
       })
 
       console.log(`✅ Volume - Created ${this.seriesType} volume histogram series with separate price scale`)
@@ -212,7 +213,7 @@ export class Volume extends SeriesClass {
         const randomMultiplier = 0.8 + Math.random() * 0.4
         volume *= randomMultiplier
         
-        // Set color based on price direction
+        // Set color based on price direction with darker, translucent colors
         color = priceDirection ? this.options.color.up : this.options.color.down
       }
       
@@ -256,7 +257,7 @@ export class Volume extends SeriesClass {
         const randomMultiplier = 0.8 + Math.random() * 0.4
         volume *= randomMultiplier
         
-        // Set color based on price direction
+        // Set color based on price direction with darker, translucent colors
         color = priceDirection ? this.options.color.up : this.options.color.down
       }
       

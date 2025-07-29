@@ -33,11 +33,6 @@ class KalshiClientConfig:
         self.custom_ws_url = os.getenv('KALSHI_WS_URL') or custom_ws_url
         self.private_key = self._load_private_key()
 
-    def _get_default_key_path(self) -> str:
-        import os
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        return os.path.join(script_dir, '..', 'kalshi-starter-code-python', 'kalshi_key_file.txt')
-
     def _load_private_key(self):
         try:
             with open(self.private_key_path, "rb") as key_file:
