@@ -4,11 +4,13 @@ FastAPI WebSocket server for streaming cleaned ticker updates
 import asyncio
 import json
 import logging
+import multiprocessing as mp
 import re
 import time
 import uuid
 from typing import Dict, Optional, List, Any
 from datetime import datetime
+from dataclasses import asdict
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -34,12 +36,17 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.StreamHandler(),  # Console output
-        logging.FileHandler('/home/rohit/Websocket_Polymarket_Kalshi/backend/websocket_debug.log', mode='w')  # File output
+        logging.StreamHandler(),  # Console output - this is for development
+        #logging.FileHandler('/home/rohit/Websocket_Polymarket_Kalshi/backend/websocket_debug.log', mode='w')  # File output
     ]
 )
 logger = logging.getLogger(__name__)
 logger.info("📝 Logging to both console and websocket_debug.log")
+
+# Global multiprocessing queues for arbitrage trading process
+arbitrage_alert_queue: Optional[mp.Queue] = None
+trading_result_queue: Optional[mp.Queue] = None
+trading_process: Optional[mp.Process] = None
 
 # Pydantic models for API requests/responses
 class MarketSubscriptionRequest(BaseModel):
@@ -956,6 +963,10 @@ async def publish_arbitrage_alert(alert_data: dict):
         alert_data (dict): Alert data from EventBus containing ArbitrageOpportunity
     """
     # Use global channel manager directly to ensure same instance
+
+    #@TODO - implement put into multiprocessor queue 
+    
+
     from backend.global_manager import global_channel_manager
     await global_channel_manager.broadcast_arbitrage_alert(alert_data)
 

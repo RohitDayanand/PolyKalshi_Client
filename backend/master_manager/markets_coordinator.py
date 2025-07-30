@@ -132,8 +132,11 @@ class MarketsCoordinator:
         try:
             # Import here to avoid circular dependencies
             from ..websocket_server import publish_arbitrage_alert
+
             await publish_arbitrage_alert(alert_data)
             logger.info(f"Published arbitrage alert to WebSocket clients: {alert_data.get('market_pair')}")
+
+            #@TODO - add in trading engine MP queue here for thread-safe concurrency
         except Exception as e:
             logger.error(f"Failed to publish arbitrage alert to WebSocket: {e}")
     
