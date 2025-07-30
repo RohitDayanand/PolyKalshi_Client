@@ -99,3 +99,8 @@ CLAUDE.md
 
 #Test folders
 untracked_demo/*
+
+#Trading engine (propietary) :) 
+trading_engine_standalone.py
+trading_engine/*
+trading_engine*

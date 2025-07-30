@@ -261,6 +261,42 @@ async def initialize_markets_coordinator():
         logger.error(f"Failed to initialize MarketsCoordinator: {e}")
         return False
 
+async def initialize_redis_publisher_background():
+    """Initialize Redis publisher in background task to avoid blocking startup."""
+    try:
+        from backend.master_manager.trading_engine.redis_arbitrage_bridge import initialize_redis_publisher
+        
+        logger.info("🔄 Initializing Redis arbitrage publisher in background...")
+        
+        # Try to connect to Redis with retries
+        max_retries = 3
+        retry_delay = 2.0
+        
+        for attempt in range(max_retries):
+            try:
+                redis_url = "redis://localhost:6379/0"  # TODO: Load from config
+                success = await initialize_redis_publisher(redis_url)
+                
+                if success:
+                    logger.info("✅ Redis arbitrage publisher initialized successfully")
+                    return
+                else:
+                    logger.warning(f"⚠️ Redis publisher initialization failed (attempt {attempt + 1}/{max_retries})")
+                    
+            except Exception as e:
+                logger.error(f"❌ Redis connection error (attempt {attempt + 1}/{max_retries}): {e}")
+            
+            if attempt < max_retries - 1:
+                await asyncio.sleep(retry_delay)
+                retry_delay *= 1.5  # Exponential backoff
+        
+        logger.error("❌ Failed to initialize Redis publisher after all retries - arbitrage alerts will not be published")
+        
+    except ImportError as e:
+        logger.error(f"❌ Failed to import Redis bridge module: {e}")
+    except Exception as e:
+        logger.error(f"❌ Unexpected error initializing Redis publisher: {e}")
+
 async def handle_market_connection(platform: str, market_id: str, optionalRemoveMarket = False) -> Dict[str, any]:
     """
     Handle market connection via MarketsCoordinator
@@ -361,6 +397,9 @@ async def startup_event():
             logger.error(f"❌ Failed to start MarketsCoordinator async components: {e}")
     else:
         logger.warning("⚠️ MarketsCoordinator not available - market connections will fail")
+    
+    # Initialize Redis publisher as background task (non-blocking)
+    asyncio.create_task(initialize_redis_publisher_background())
     
     logger.info("FastAPI app startup complete")
 
@@ -962,13 +1001,41 @@ async def publish_arbitrage_alert(alert_data: dict):
     Args:
         alert_data (dict): Alert data from EventBus containing ArbitrageOpportunity
     """
-    # Use global channel manager directly to ensure same instance
-
-    #@TODO - implement put into multiprocessor queue 
-    
-
+    # Use global channel manager for WebSocket broadcasting
     from backend.global_manager import global_channel_manager
     await global_channel_manager.broadcast_arbitrage_alert(alert_data)
+    
+    # Publish to Redis for external trading processes (fire-and-forget)
+    try:
+        from backend.master_manager.trading_engine.redis_arbitrage_bridge import publish_arbitrage_alert_to_redis
+        
+        # Extract ArbitrageOpportunity from alert_data and serialize
+        opportunity = alert_data.get("alert")  # This should be the ArbitrageOpportunity dataclass
+        
+        if opportunity:
+            # Convert dataclass to dict for Redis publishing
+            redis_alert_data = {
+                "market_pair": opportunity.market_pair,
+                "side": opportunity.side,
+                "spread": opportunity.spread,
+                "direction": opportunity.direction,
+                "kalshi_price": opportunity.kalshi_price,
+                "polymarket_price": opportunity.polymarket_price,
+                "kalshi_market_id": opportunity.kalshi_market_id,
+                "polymarket_asset_id": opportunity.polymarket_asset_id,
+                "confidence": opportunity.confidence,
+                "execution_size": opportunity.execution_size,
+                "execution_info": opportunity.execution_info,
+                "timestamp": alert_data.get("timestamp", datetime.now().isoformat())
+            }
+            
+            # Fire-and-forget Redis publish (don't await to avoid blocking)
+            asyncio.create_task(publish_arbitrage_alert_to_redis(redis_alert_data))
+            logger.debug(f"🚀 Dispatched arbitrage alert to Redis | market={opportunity.market_pair} | spread={opportunity.spread:.3f}")
+        
+    except Exception as e:
+        # Don't let Redis errors break the main alert flow
+        logger.warning(f"⚠️ Failed to publish arbitrage alert to Redis: {e}")
 
 if __name__ == "__main__":
     uvicorn.run(
