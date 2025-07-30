@@ -32,6 +32,7 @@ pyee
 python-dateutil
 python-dotenv
 pytz
+redis
 requests
 rsa
 setuptools
