@@ -22,6 +22,7 @@ COPY . .
 # Set Python path to include the project root
 ENV PYTHONPATH=/app
 
+
 # Expose the backend port
 EXPOSE 8000
 

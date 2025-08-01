@@ -1006,6 +1006,7 @@ async def publish_arbitrage_alert(alert_data: dict):
     await global_channel_manager.broadcast_arbitrage_alert(alert_data)
     
     # Publish to Redis for external trading processes (fire-and-forget)
+    # This is stub code for you to use in case you want to interact with these alerts in any way
     try:
         from backend.master_manager.trading_engine.redis_arbitrage_bridge import publish_arbitrage_alert_to_redis
         
@@ -1035,7 +1036,7 @@ async def publish_arbitrage_alert(alert_data: dict):
         
     except Exception as e:
         # Don't let Redis errors break the main alert flow
-        logger.warning(f"⚠️ Failed to publish arbitrage alert to Redis: {e}")
+        logger.warning(f" No outbound recipent of the arbitrage alert : {e}")
 
 if __name__ == "__main__":
     uvicorn.run(

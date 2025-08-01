@@ -1,5 +1,7 @@
 /**
  * Cryptographic utilities for Kalshi API authentication
+ * Not used anymore - backend does authentication, but code can be reused for those who want to
+ * do authentication in kalshi
  */
 
 import { KALSHI_CRYPTO_CONFIG } from './constants';
