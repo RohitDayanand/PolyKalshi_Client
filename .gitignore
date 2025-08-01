@@ -104,3 +104,4 @@ untracked_demo/*
 trading_engine_standalone.py
 trading_engine/*
 trading_engine*
+**/trading_engine/

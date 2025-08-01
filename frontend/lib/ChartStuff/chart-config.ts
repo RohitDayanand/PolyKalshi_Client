@@ -95,13 +95,12 @@ export const getTimeScaleOptions = (timeRange?: string): Partial<TimeScaleOption
 
 /**
  * CHART WATERMARK CONFIGURATION
- * Settings for the Strike branding watermark
  */
 export const watermarkConfig = {
   horzAlign: 'left' as const,
   vertAlign: 'bottom' as const,
   lines: [{
-    text: 'Strike',
+    text: '',
     color: 'rgba(42, 171, 78, 0.5)',
     fontSize: 10,
   }],
