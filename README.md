@@ -1,8 +1,4 @@
 
-Rohit Dayanand <rohit.dayanand@stern.nyu.edu>
-1:57 PM (0 minutes ago)
-to me
-
 # 📊 Multi-Platform Prediction Market Analytics
 
 A production-ready trading analytics platform that aggregates real-time data from Kalshi and Polymarket, providing unified dashboards, advanced market analytics, and automated arbitrage detection with PostgreSQL persistence and Next.js visualization interface.
@@ -320,3 +316,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 [![GitHub stars](https://img.shields.io/github/stars/your-username/multi-platform-trading-analytics.svg?style=social&label=Star)](https://github.com/your-username/multi-platform-trading-analytics)
 [![GitHub forks](https://img.shields.io/github/forks/your-username/multi-platform-trading-analytics.svg?style=social&label=Fork)](https://github.com/your-username/multi-platform-trading-analytics/fork)
+
