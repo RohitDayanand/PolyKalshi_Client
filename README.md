@@ -1,16 +1,22 @@
+
+Rohit Dayanand <rohit.dayanand@stern.nyu.edu>
+1:57 PM (0 minutes ago)
+to me
+
 # 📊 Multi-Platform Prediction Market Analytics
 
-A professional-grade trading analytics platform that aggregates real-time data from Kalshi and Polymarket, providing unified dashboards and advanced market analytics that neither platform offers individually.
+A production-ready trading analytics platform that aggregates real-time data from Kalshi and Polymarket, providing unified dashboards, advanced market analytics, and automated arbitrage detection with PostgreSQL persistence and Next.js visualization interface.
 
 ## 🎯 Project Overview
 
 This platform serves traders and analysts who want comprehensive market insights across multiple prediction market platforms. By connecting to both Kalshi and Polymarket through their WebSocket APIs, we provide:
 
-- **Real-time data ingestion** from both platforms
-- **Unified market analytics** and visualizations
-- **Advanced metrics** like rolling volatility, trade place data, and cross-platform price comparisons
-- **Professional dashboards** for market monitoring and analysis
-- **Statistical arbitrage** opportunity identification
+- **Real-time data ingestion** from both platforms via WebSocket connections
+- **Unified market analytics** with Next.js dashboard and React components
+- **Advanced metrics** including rolling volatility, orderbook analysis, and cross-platform price comparisons
+- **Professional dashboards** with real-time visualizations and market monitoring
+- **Automated arbitrage detection** with PostgreSQL persistence and tracking
+- **Statistical analysis** with comprehensive data processing and alerts
 
 ## ⭐ Key Features
 
@@ -27,20 +33,22 @@ This platform serves traders and analysts who want comprehensive market insights
 - **Order book depth analysis**
 - **Trade volume analytics**
 
-### 🎛️ Professional Dashboards
-- **Real-time market monitoring**
-- **Customizable alerts** and notifications
-- **Historical data visualization**
-- **Portfolio tracking** across platforms
-- **Risk management tools**
+### 🎛️ Production Dashboard (Next.js)
+- **Real-time market monitoring** with React components
+- **Interactive charts** using Lightweight Charts and Recharts
+- **Market search and filtering** with real-time updates
+- **Orderbook visualization** and depth analysis
+- **Arbitrage opportunity display** with profit calculations
+- **Responsive design** with Tailwind CSS and Radix UI
 
-### 🔧 Platform Integration
-- **Unified login** for both Kalshi and Polymarket accounts
-- **Secure API key management**
-- **Cross-platform position tracking**
-- **Automated market discovery**
+### 🔧 Arbitrage Detection Engine
+- **Automated opportunity scanning** across platforms
+- **PostgreSQL persistence** for historical tracking
+- **Real-time profit calculations** with fee considerations
+- **Alert system** for profitable opportunities
+- **Performance analytics** and success rate tracking
 
-## 🏗️ Architecture
+## 🏗️ Production Architecture
 
 ```
 ┌─────────────────┐    ┌─────────────────┐
@@ -51,23 +59,27 @@ This platform serves traders and analysts who want comprehensive market insights
           └──────┬─────────┬─────┘
                  │         │
          ┌───────▼─────────▼───────┐
-         │   Data Ingestion        │
-         │   Pipeline              │
+         │  Python Backend         │
+         │  WebSocket Clients      │
+         │  (master_manager)       │
          └───────┬─────────────────┘
                  │
          ┌───────▼─────────────────┐
          │   PostgreSQL Database   │
-         │   (JSONB + Schema)      │
+         │   Arbitrage Tracking    │
+         │   (JSONB + Relations)   │
          └───────┬─────────────────┘
                  │
          ┌───────▼─────────────────┐
-         │   Analytics Engine      │
-         │   & API Backend         │
+         │  Arbitrage Service      │
+         │  Analytics Engine       │
+         │  Detection Algorithms   │
          └───────┬─────────────────┘
                  │
          ┌───────▼─────────────────┐
-         │   Real-time Dashboard   │
-         │   & Visualization       │
+         │   Next.js Frontend      │
+         │   React Dashboard       │
+         │   Real-time Charts      │
          └─────────────────────────┘
 ```
 
@@ -75,59 +87,79 @@ This platform serves traders and analysts who want comprehensive market insights
 
 ### Prerequisites
 - Python 3.9+
+- Node.js 18+ and pnpm
 - PostgreSQL 12+
 - Kalshi API credentials
-- Polymarket API access
+- Polymarket WebSocket access
 
 ### Installation
 
+(below is for actual editing, if you want to run it's setup env files, docker compose build, then docker compose up)
 1. **Clone the repository**
 ```bash
 git clone https://github.com/your-username/multi-platform-trading-analytics
 cd multi-platform-trading-analytics
 ```
 
-2. **Install dependencies**
+2. **Install Python dependencies**
 ```bash
 pip install -r requirements.txt
 ```
 
-3. **Set up environment variables**
+3. **Install frontend dependencies**
+```bash
+cd frontend
+pnpm install
+cd ..
+```
+
+4. **Set up environment variables**
 ```bash
 cp .env.example .env
-# Edit .env with your credentials
+# Edit .env with your PostgreSQL and API credentials
 ```
 
-4. **Initialize the database**
+5. **Initialize PostgreSQL database**
 ```bash
-python -c "from kalshi-starter-code-python.models import init_db; init_db()"
+# Set up database schema
+psql -U your_username -d your_database -f backend/postgresql_schema.sql
 ```
 
-5. **Start the data collection**
+6. **Start the application**
 ```bash
-# Start Kalshi data collection
-python kalshi-starter-code-python/main.py
+# Start backend services
+python backend/start_server.py
 
-# Start Polymarket data collection (in another terminal)
-python poly-starter-code/Connection.py
+# Start frontend dashboard (in another terminal)
+cd frontend && pnpm run dev
 ```
 
 ## 📁 Project Structure
 
 ```
-├── kalshi-starter-code-python/     # Kalshi integration
-│   ├── models.py                   # Database models
-│   ├── kalshi_client.py           # Kalshi API client
-│   ├── orderbook_processor.py     # Real-time data processing
-│   ├── find_kalshi_markets.py     # Market discovery
-│   └── main.py                    # Main orchestration
-├── poly-starter-code/             # Polymarket integration
-│   ├── Connection.py              # WebSocket client
-│   ├── Market_Finder.py           # Market discovery
-│   └── models.py                  # Database models
-├── docs/                          # Documentation
-├── tests/                         # Test suite
-└── dashboard/                     # Frontend dashboard (coming soon)
+├── backend/                       # Python backend services
+│   ├── master_manager/           # Core application logic
+│   │   ├── clients/              # API clients (Kalshi, Polymarket)
+│   │   ├── services/             # Business logic services
+│   │   │   ├── arbitrage_service/ # Arbitrage detection engine
+│   │   │   ├── events/           # Event handling
+│   │   │   └── messaging/        # Inter-service communication
+│   │   └── tests/                # Backend tests
+│   ├── postgresql_schema.sql     # Database schema
+│   └── start_server.py          # Main server entry point
+├── frontend/                     # Next.js dashboard
+│   ├── app/                     # Next.js app router
+│   ├── components/              # React components
+│   │   ├── charts/              # Chart visualizations
+│   │   ├── containers/          # Page containers
+│   │   └── ui/                  # UI component library
+│   ├── lib/                     # Utilities and helpers
+│   │   ├── RxJSChannel/         # WebSocket management
+│   │   └── store/               # Redux state management
+│   └── package.json             # Frontend dependencies
+├── config/                      # Configuration files
+├── docs/                        # Documentation
+└── README.md                    # This file
 ```
 
 ## 🔧 Configuration
@@ -153,66 +185,86 @@ PROD_KEYFILE=kalshi_key_file.txt
 POLYMARKET_API_KEY=your_polymarket_key
 ```
 
-## 📊 Data Models
+## 💻 Tech Stack
 
-### Kalshi Data Structure
-- **Orderbook Snapshots**: Full market depth with JSONB orders
-- **Deltas**: Real-time order changes
-- **Trades**: Executed transaction data
-- **Fills**: Order fill notifications
-- **Ticker V2**: Market statistics and metrics
+### Backend
+- **Python 3.9+** with asyncio for concurrent processing
+- **PostgreSQL** with JSONB support for flexible data storage
+- **WebSocket clients** for real-time Kalshi and Polymarket data
+- **Service-oriented architecture** with modular components
+- **Async processing** for high-throughput arbitrage detection
 
-### Polymarket Data Structure
-- **Order Books**: Bid/ask spreads and market depth
-- **Price Changes**: Real-time price movements
-- **Tick Size Changes**: Market parameter updates
+### Frontend  
+- **Next.js 15** with App Router for modern React development
+- **TypeScript** for type-safe development
+- **Tailwind CSS** + **Radix UI** for responsive design
+- **Lightweight Charts** for financial data visualization
+- **Redux Toolkit** + **RxJS** for state and WebSocket management
+- **Recharts** for additional chart components
+
+### Database Schema
+- **PostgreSQL** with optimized arbitrage tracking tables
+- **JSONB storage** for flexible orderbook data
+- **Indexed queries** for fast opportunity detection
+- **Async batch operations** for performance optimization
 
 ## 🔍 Usage Examples
 
 ### Market Discovery
 ```python
-from kalshi_starter_code_python.find_kalshi_markets import get_markets
+from backend.master_manager.clients.kalshi_client import KalshiClient
 
 # Find active markets
-markets = get_markets("PRESIDENT-2024")
+kalshi = KalshiClient()
+markets = kalshi.get_markets(event_ticker="PRESIDENT-2024")
 print(f"Found {len(markets.get('markets', []))} active markets")
 ```
 
 ### Real-time Monitoring
 ```python
-from kalshi_starter_code_python.main import main as start_kalshi
-from poly_starter_code.Connection import PolymarketWebSocket
+# Start the backend services
+from backend.master_manager.services.service_coordinator import ServiceCoordinator
 
-# Start real-time data collection
-start_kalshi()  # Kalshi data
-ws = PolymarketWebSocket("your-market-slug")  # Polymarket data
+# Initialize and start all services
+coordinator = ServiceCoordinator()
+coordinator.start_all_services()
+
+# Access dashboard at http://localhost:3000
+# View arbitrage opportunities and market data in real-time
 ```
 
 ## 🎯 Roadmap
 
-### Phase 1: Core Infrastructure ✅
-- [x] WebSocket data ingestion
-- [x] Database schema design
-- [x] Basic market discovery
-- [x] Error handling and logging
+### Phase 1: Core Infrastructure ✅ **COMPLETE**
+- [x] WebSocket data ingestion from Kalshi and Polymarket
+- [x] PostgreSQL database schema with JSONB support
+- [x] Market discovery and real-time data collection
+- [x] Error handling, logging, and reconnection logic
+- [x] Master manager orchestration system
 
-### Phase 2: Analytics Engine 🚧
-- [ ] Rolling average calculations
-- [ ] Volatility metrics
-- [ ] Cross-platform price comparison
-- [ ] Statistical arbitrage detection
+### Phase 2: Analytics Engine ✅ **COMPLETE**
+- [x] Rolling average calculations and volatility metrics
+- [x] Cross-platform price comparison algorithms
+- [x] Statistical arbitrage detection with profit calculations
+- [x] PostgreSQL arbitrage tracking and persistence
+- [x] Fee calculation and opportunity scoring
+- [x] Async processing for high-throughput operations
 
-### Phase 3: Dashboard & UI 📋
-- [ ] Real-time dashboard
-- [ ] Market visualization
-- [ ] Alert system
-- [ ] User authentication
+### Phase 3: Dashboard & UI ✅ **COMPLETE**
+- [x] Next.js real-time dashboard with React components
+- [x] Interactive market visualization with Lightweight Charts
+- [x] Orderbook depth charts and volume analysis
+- [x] Market search and filtering capabilities
+- [x] Arbitrage opportunity display with profit metrics
+- [x] Responsive design with Tailwind CSS and Radix UI
+- [x] Redux state management and RxJS WebSocket handling
 
-### Phase 4: Advanced Features 🎯
-- [ ] Machine learning predictions
-- [ ] Risk management tools
-- [ ] Portfolio optimization
-- [ ] Mobile application
+### Phase 4: Advanced Features 🚧 **IN PROGRESS**
+- [x] Performance analytics and throughput testing
+- [ ] Machine learning prediction models
+- [ ] Advanced risk management tools
+- [ ] Portfolio optimization algorithms
+- [ ] Mobile application interface
 
 ## 🤝 Contributing
 
@@ -227,11 +279,17 @@ We welcome contributions from the open-source community! Please see our [Contrib
 
 ## 📋 API Documentation
 
-Detailed API documentation is available in the [docs/](docs/) directory:
-- [Kalshi Integration](docs/kalshi-api.md)
-- [Polymarket Integration](docs/polymarket-api.md)
-- [Database Schema](docs/database-schema.md)
-- [Analytics API](docs/analytics-api.md)
+### Key Components
+- **Backend Services**: Python services in `backend/master_manager/services/`
+- **Arbitrage Engine**: Real-time detection in `backend/master_manager/services/arbitrage_service/`
+- **Frontend API**: Next.js API routes in `frontend/app/api/`
+- **WebSocket Management**: RxJS channels in `frontend/lib/RxJSChannel/`
+
+### Performance
+- **High-throughput processing** with async PostgreSQL operations
+- **Real-time WebSocket** connections with automatic reconnection
+- **Optimized database queries** with proper indexing
+- **Responsive frontend** with efficient state management
 
 ## 🛡️ Security
 
@@ -252,10 +310,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📞 Contact
 
-- **Project Maintainer**: [Your Name]
-- **Email**: your.email@example.com
-- **LinkedIn**: [Your LinkedIn Profile]
-- **Twitter**: [@YourHandle]
+- **Project Maintainer**: Rohit Dayanand
+- **Email**: rohitdayanand8@gmail.com
+- **LinkedIn**: https://www.linkedin.com/in/rohit-dayanand-44122b1a6/
 
 ---
 
